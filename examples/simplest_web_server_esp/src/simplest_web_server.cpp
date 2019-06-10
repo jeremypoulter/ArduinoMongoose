@@ -11,13 +11,27 @@
 #error Platform not supported
 #endif
 
+#if MG_ENABLE_FILESYSTEM && defined(MG_USER_FILE_FUNCTIONS)
+#include <FS.h>
+#endif
+
 #include "mongoose.h"
 
 const char* ssid     = "my-ssid";
 const char* password = "my-password";
 
 static const char *s_http_port = "80";
-//static struct mg_serve_http_opts s_http_server_opts;
+
+#if MG_ENABLE_FILESYSTEM
+static struct mg_serve_http_opts s_http_server_opts;
+
+static void ev_handler(struct mg_connection *nc, int ev, void *p, void *d) {
+  if (ev == MG_EV_HTTP_REQUEST) {
+    mg_serve_http(nc, (struct http_message *) p, s_http_server_opts);
+  }
+}
+
+#else
 
 static void ev_handler(struct mg_connection *nc, int ev, void *p, void *d) {
   static const char *reply_fmt =
@@ -53,6 +67,8 @@ static void ev_handler(struct mg_connection *nc, int ev, void *p, void *d) {
   }
 }
 
+#endif
+
 struct mg_mgr mgr;
 struct mg_connection *nc;
 
@@ -85,8 +101,10 @@ void setup()
 
   // Set up HTTP server parameters
   mg_set_protocol_http_websocket(nc);
-//  s_http_server_opts.document_root = ".";  // Serve current directory
-//  s_http_server_opts.enable_directory_listing = "yes";
+#if MG_ENABLE_FILESYSTEM
+  s_http_server_opts.document_root = ".";  // Serve current directory
+  s_http_server_opts.enable_directory_listing = "yes";
+#endif
 }
 
 static uint32_t count = 0;

@@ -1734,6 +1734,10 @@ typedef unsigned int *uintptr_t;
 #define S_ISREG(x) (((x) &_S_IFREG) != 0)
 #endif
 
+#ifndef MG_FILE
+#define MG_FILE FILE *
+#endif
+
 int open(const char *filename, int oflag, int pmode);
 int _wstati64(const wchar_t *path, cs_stat_t *st);
 const char *strerror();
@@ -2466,7 +2470,7 @@ void cs_base64_update(struct cs_base64_ctx *ctx, const char *str, size_t len);
 void cs_base64_finish(struct cs_base64_ctx *ctx);
 
 void cs_base64_encode(const unsigned char *src, int src_len, char *dst);
-void cs_fprint_base64(FILE *f, const unsigned char *src, int src_len);
+void cs_fprint_base64(MG_FILE f, const unsigned char *src, int src_len);
 
 /*
  * Decodes a base64 string `s` length `len` into `dst`.
@@ -4557,7 +4561,7 @@ int mg_stat(const char *path, cs_stat_t *st);
  *
  * Return value is the same as for the `fopen()` call.
  */
-FILE *mg_fopen(const char *path, const char *mode);
+MG_FILE mg_fopen(const char *path, const char *mode);
 
 /*
  * Opens the given file and returns a file stream.
@@ -4573,14 +4577,19 @@ int mg_open(const char *path, int flag, int mode);
  *
  * Return value is a number of bytes readen.
  */
-size_t mg_fread(void *ptr, size_t size, size_t count, FILE *f);
+size_t mg_fread(void *ptr, size_t size, size_t count, MG_FILE f);
 
 /*
  * Writes data to the given file stream.
  *
- * Return value is a number of bytes wtitten.
+ * Return value is a number of bytes written.
  */
-size_t mg_fwrite(const void *ptr, size_t size, size_t count, FILE *f);
+size_t mg_fwrite(const void *ptr, size_t size, size_t count, MG_FILE f);
+
+/*
+ * Closes an open file
+ */
+size_t mg_fclose(MG_FILE f);
 
 #endif /* MG_ENABLE_FILESYSTEM */
 
@@ -4640,7 +4649,7 @@ int mg_sock_addr_to_str(const union socket_address *sa, char *buf, size_t len,
 int mg_hexdump(const void *buf, int len, char *dst, int dst_len);
 
 /* Same as mg_hexdump, but with output going to file instead of a buffer. */
-void mg_hexdumpf(FILE *fp, const void *buf, int len);
+void mg_hexdumpf(MG_FILE fp, const void *buf, int len);
 
 /*
  * Generates human-readable hexdump of the data sent or received by the
@@ -5514,7 +5523,7 @@ void mg_register_http_endpoint_opt(struct mg_connection *nc,
  * Returns 1 if authenticated, 0 otherwise.
  */
 int mg_http_check_digest_auth(struct http_message *hm, const char *auth_domain,
-                              FILE *fp);
+                              MG_FILE fp);
 
 /*
  * Authenticates given response params against an opened password file.
@@ -5526,7 +5535,7 @@ int mg_check_digest_auth(struct mg_str method, struct mg_str uri,
                          struct mg_str username, struct mg_str cnonce,
                          struct mg_str response, struct mg_str qop,
                          struct mg_str nc, struct mg_str nonce,
-                         struct mg_str auth_domain, FILE *fp);
+                         struct mg_str auth_domain, MG_FILE fp);
 
 /*
  * Sends buffer `buf` of size `len` to the client using chunked HTTP encoding.

@@ -362,7 +362,7 @@ void cs_base64_encode(const unsigned char *src, int src_len, char *dst) {
 
 #define BASE64_FLUSH()
 
-void cs_fprint_base64(FILE *f, const unsigned char *src, int src_len) {
+void cs_fprint_base64(MG_FILE f, const unsigned char *src, int src_len) {
   BASE64_ENCODE_BODY;
 }
 
@@ -527,7 +527,7 @@ extern enum cs_log_level cs_log_level;
 /*
  * Set file to write logs into. If `NULL`, logs go to `stderr`.
  */
-void cs_log_set_file(FILE *file);
+void cs_log_set_file(MG_FILE file);
 
 /*
  * Prints log to the current log file, appends "\n" in the end and flushes the
@@ -624,7 +624,7 @@ static char *s_file_level = NULL;
 
 void cs_log_set_file_level(const char *file_level) WEAK;
 
-FILE *cs_log_file WEAK = NULL;
+MG_FILE cs_log_file WEAK = NULL;
 
 #if CS_LOG_ENABLE_TS_DIFF
 double cs_log_ts WEAK;
@@ -709,8 +709,8 @@ void cs_log_printf(const char *fmt, ...) {
   cs_log_cur_msg_level = LL_NONE;
 }
 
-void cs_log_set_file(FILE *file) WEAK;
-void cs_log_set_file(FILE *file) {
+void cs_log_set_file(MG_FILE file) WEAK;
+void cs_log_set_file(MG_FILE file) {
   cs_log_file = file;
 }
 
@@ -5921,7 +5921,7 @@ static const char *mg_version_header = "Mongoose/" MG_VERSION;
 enum mg_http_proto_data_type { DATA_NONE, DATA_FILE, DATA_PUT };
 
 struct mg_http_proto_data_file {
-  FILE *fp;      /* Opened file. */
+  MG_FILE fp;      /* Opened file. */
   int64_t cl;    /* Content-Length. How many bytes to send. */
   int64_t sent;  /* How many bytes have been already sent. */
   int keepalive; /* Keep connection open after sending. */
@@ -6035,7 +6035,7 @@ static void mg_http_free_proto_data_mp_stream(
 static void mg_http_free_proto_data_file(struct mg_http_proto_data_file *d) {
   if (d != NULL) {
     if (d->fp != NULL) {
-      fclose(d->fp);
+      mg_close(d->fp);
     }
     memset(d, 0, sizeof(struct mg_http_proto_data_file));
   }
@@ -7048,7 +7048,7 @@ static void mg_http_multipart_continue(struct mg_connection *c) {
 struct file_upload_state {
   char *lfn;
   size_t num_recd;
-  FILE *fp;
+  MG_FILE fp;
 };
 
 #endif /* MG_ENABLE_HTTP_STREAMING_MULTIPART */
@@ -7723,7 +7723,7 @@ static int mg_check_nonce(const char *nonce) {
 }
 
 int mg_http_check_digest_auth(struct http_message *hm, const char *auth_domain,
-                              FILE *fp) {
+                              MG_FILE fp) {
   int ret = 0;
   struct mg_str *hdr;
   char username_buf[50], cnonce_buf[64], response_buf[40], uri_buf[200],
@@ -7776,7 +7776,7 @@ int mg_check_digest_auth(struct mg_str method, struct mg_str uri,
                          struct mg_str username, struct mg_str cnonce,
                          struct mg_str response, struct mg_str qop,
                          struct mg_str nc, struct mg_str nonce,
-                         struct mg_str auth_domain, FILE *fp) {
+                         struct mg_str auth_domain, MG_FILE fp) {
   char buf[128], f_user[sizeof(buf)], f_ha1[sizeof(buf)], f_domain[sizeof(buf)];
   char exp_resp[33];
 
@@ -7808,7 +7808,7 @@ int mg_http_is_authorized(struct http_message *hm, struct mg_str path,
                           int flags) {
   char buf[MG_MAX_PATH];
   const char *p;
-  FILE *fp;
+  MG_FILE fp;
   int authorized = 1;
 
   if (domain != NULL && passwords_file != NULL) {
@@ -7828,7 +7828,7 @@ int mg_http_is_authorized(struct http_message *hm, struct mg_str path,
 
     if (fp != NULL) {
       authorized = mg_http_check_digest_auth(hm, domain, fp);
-      fclose(fp);
+      mg_close(fp);
     } else if (!(flags & MG_AUTH_FLAG_ALLOW_MISSING_FILE)) {
       authorized = 0;
     }
@@ -8661,7 +8661,7 @@ void mg_file_upload_handler(struct mg_connection *nc, int ev, void *ev_data,
           mg_printf(nc, "Failed to write to %s: %d, wrote %d", mp->file_name,
                     mg_get_errno(), (int) fus->num_recd);
         }
-        fclose(fus->fp);
+        mg_close(fus->fp);
         remove(fus->lfn);
         fus->fp = NULL;
         /* Do not close the connection just yet, discard remainder of the data.
@@ -8690,7 +8690,7 @@ void mg_file_upload_handler(struct mg_connection *nc, int ev, void *ev_data,
          * HTTP reply
          */
       }
-      if (fus->fp != NULL) fclose(fus->fp);
+      if (fus->fp != NULL) mg_close(fus->fp);
       MG_FREE(fus->lfn);
       MG_FREE(fus);
       mp->user_data = NULL;
@@ -9069,7 +9069,7 @@ static int mg_start_process(const char *interp, const char *cmd,
   char buf[MG_MAX_PATH], buf2[MG_MAX_PATH], buf5[MG_MAX_PATH],
       buf4[MG_MAX_PATH], cmdline[MG_MAX_PATH];
   DWORD flags = DUPLICATE_CLOSE_SOURCE | DUPLICATE_SAME_ACCESS;
-  FILE *fp;
+  MG_FILE fp;
 
   memset(&si, 0, sizeof(si));
   memset(&pi, 0, sizeof(pi));
@@ -9095,7 +9095,7 @@ static int mg_start_process(const char *interp, const char *cmd,
         interp++;
       }
     }
-    fclose(fp);
+    mg_close(fp);
   }
 
   snprintf(buf, sizeof(buf), "%s/%s", dir, cmd);
@@ -9474,10 +9474,10 @@ MG_INTERNAL void mg_http_free_proto_data_cgi(struct mg_http_proto_data_cgi *d) {
 #if MG_ENABLE_HTTP && MG_ENABLE_HTTP_SSI && MG_ENABLE_FILESYSTEM
 
 static void mg_send_ssi_file(struct mg_connection *nc, struct http_message *hm,
-                             const char *path, FILE *fp, int include_level,
+                             const char *path, MG_FILE fp, int include_level,
                              const struct mg_serve_http_opts *opts);
 
-static void mg_send_file_data(struct mg_connection *nc, FILE *fp) {
+static void mg_send_file_data(struct mg_connection *nc, MG_FILE fp) {
   char buf[BUFSIZ];
   size_t n;
   while ((n = mg_fread(buf, 1, sizeof(buf), fp)) > 0) {
@@ -9489,7 +9489,7 @@ static void mg_do_ssi_include(struct mg_connection *nc, struct http_message *hm,
                               const char *ssi, char *tag, int include_level,
                               const struct mg_serve_http_opts *opts) {
   char file_name[MG_MAX_PATH], path[MG_MAX_PATH], *p;
-  FILE *fp;
+  MG_FILE fp;
 
   /*
    * sscanf() is safe here, since send_ssi_file() also uses buffer
@@ -9528,14 +9528,14 @@ static void mg_do_ssi_include(struct mg_connection *nc, struct http_message *hm,
     } else {
       mg_send_file_data(nc, fp);
     }
-    fclose(fp);
+    mg_close(fp);
   }
 }
 
 #if MG_ENABLE_HTTP_SSI_EXEC
 static void do_ssi_exec(struct mg_connection *nc, char *tag) {
   char cmd[BUFSIZ];
-  FILE *fp;
+  MG_FILE fp;
 
   if (sscanf(tag, " \"%[^\"]\"", cmd) != 1) {
     mg_printf(nc, "Bad SSI #exec: [%s]", tag);
@@ -9553,7 +9553,7 @@ static void do_ssi_exec(struct mg_connection *nc, char *tag) {
  * <!--#directive parameter=value parameter=value -->
  */
 static void mg_send_ssi_file(struct mg_connection *nc, struct http_message *hm,
-                             const char *path, FILE *fp, int include_level,
+                             const char *path, MG_FILE fp, int include_level,
                              const struct mg_serve_http_opts *opts) {
   static const struct mg_str btag = MG_MK_STR("<!--#");
   static const struct mg_str d_include = MG_MK_STR("include");
@@ -9637,7 +9637,7 @@ MG_INTERNAL void mg_handle_ssi_request(struct mg_connection *nc,
                                        struct http_message *hm,
                                        const char *path,
                                        const struct mg_serve_http_opts *opts) {
-  FILE *fp;
+  MG_FILE fp;
   struct mg_str mime_type;
   DBG(("%p %s", nc, path));
 
@@ -9653,7 +9653,7 @@ MG_INTERNAL void mg_handle_ssi_request(struct mg_connection *nc,
               "Connection: close\r\n\r\n",
               (int) mime_type.len, mime_type.p);
     mg_send_ssi_file(nc, hm, path, fp, 0, opts);
-    fclose(fp);
+    mg_close(fp);
     nc->flags |= MG_F_SEND_AND_CLOSE;
   }
 }
@@ -10491,7 +10491,7 @@ int mg_stat(const char *path, cs_stat_t *st) {
 #endif
 }
 
-FILE *mg_fopen(const char *path, const char *mode) {
+MG_FILE mg_fopen(const char *path, const char *mode) {
 #ifdef _WIN32
   wchar_t wpath[MG_MAX_PATH], wmode[10];
   to_wchar(path, wpath, ARRAY_SIZE(wpath));
@@ -10512,12 +10512,16 @@ int mg_open(const char *path, int flag, int mode) { /* LCOV_EXCL_LINE */
 #endif
 }
 
-size_t mg_fread(void *ptr, size_t size, size_t count, FILE *f) {
+size_t mg_fread(void *ptr, size_t size, size_t count, MG_FILE f) {
   return fread(ptr, size, count, f);
 }
 
-size_t mg_fwrite(const void *ptr, size_t size, size_t count, FILE *f) {
+size_t mg_fwrite(const void *ptr, size_t size, size_t count, MG_FILE f) {
   return fwrite(ptr, size, count, f);
+}
+
+void mg_fclose(MG_FILE f) {
+  fclose(f);
 }
 #endif
 
@@ -10664,7 +10668,7 @@ int mg_hexdump(const void *buf, int len, char *dst, int dst_len) {
   return mg_hexdump_n(buf, len, dst, dst_len, 0);
 }
 
-void mg_hexdumpf(FILE *fp, const void *buf, int len) {
+void mg_hexdumpf(MG_FILE fp, const void *buf, int len) {
   char tmp[80];
   int offset = 0, n;
   while (len > 0) {
@@ -10678,7 +10682,7 @@ void mg_hexdumpf(FILE *fp, const void *buf, int len) {
 
 void mg_hexdump_connection(struct mg_connection *nc, const char *path,
                            const void *buf, int num_bytes, int ev) {
-  FILE *fp = NULL;
+  MG_FILE fp = NULL;
   char src[60], dst[60];
   const char *tag = NULL;
   switch (ev) {
@@ -10721,7 +10725,7 @@ void mg_hexdump_connection(struct mg_connection *nc, const char *path,
   if (num_bytes > 0) {
     mg_hexdumpf(fp, buf, num_bytes);
   }
-  if (fp != stdout && fp != stderr) fclose(fp);
+  if (fp != stdout && fp != stderr) mg_close(fp);
 }
 #endif
 
@@ -12050,7 +12054,7 @@ static int mg_get_ip_address_of_nameserver(char *name, size_t name_len) {
     RegCloseKey(hKey);
   }
 #elif MG_ENABLE_FILESYSTEM && defined(MG_RESOLV_CONF_FILE_NAME)
-  FILE *fp;
+  MG_FILE fp;
   char line[512];
 
   if ((fp = mg_fopen(MG_RESOLV_CONF_FILE_NAME, "r")) == NULL) {
@@ -12065,7 +12069,7 @@ static int mg_get_ip_address_of_nameserver(char *name, size_t name_len) {
         break;
       }
     }
-    (void) fclose(fp);
+    (void) mg_close(fp);
   }
 #else
   snprintf(name, name_len, "%s", MG_DEFAULT_NAMESERVER);
@@ -12077,7 +12081,7 @@ static int mg_get_ip_address_of_nameserver(char *name, size_t name_len) {
 int mg_resolve_from_hosts_file(const char *name, union socket_address *usa) {
 #if MG_ENABLE_FILESYSTEM && defined(MG_HOSTS_FILE_NAME)
   /* TODO(mkm) cache /etc/hosts */
-  FILE *fp;
+  MG_FILE fp;
   char line[1024];
   char *p;
   char alias[256];
@@ -12098,13 +12102,13 @@ int mg_resolve_from_hosts_file(const char *name, union socket_address *usa) {
     for (p = line + len; sscanf(p, "%s%n", alias, &len) == 1; p += len) {
       if (strcmp(alias, name) == 0) {
         usa->sin.sin_addr.s_addr = htonl(a << 24 | b << 16 | c << 8 | d);
-        fclose(fp);
+        mg_close(fp);
         return 0;
       }
     }
   }
 
-  fclose(fp);
+  mg_close(fp);
 #else
   (void) name;
   (void) usa;
@@ -13392,7 +13396,7 @@ time_t HOSTtime() {
 
 #endif /* __TI_COMPILER_VERSION__ */
 
-void fprint_str(FILE *fp, const char *str) {
+void fprint_str(MG_FILE fp, const char *str) {
   while (*str != '\0') {
     if (*str == '\n') MAP_UARTCharPut(CONSOLE_UART, '\r');
     MAP_UARTCharPut(CONSOLE_UART, *str++);
@@ -14983,7 +14987,7 @@ void mg_ssl_if_conn_free(struct mg_connection *nc) {
 
 bool pem_to_der(const char *pem_file, const char *der_file) {
   bool ret = false;
-  FILE *pf = NULL, *df = NULL;
+  MG_FILE pf = NULL, *df = NULL;
   bool writing = false;
   pf = fopen(pem_file, "r");
   if (pf == NULL) goto clean;
@@ -15014,9 +15018,9 @@ bool pem_to_der(const char *pem_file, const char *der_file) {
   }
 
 clean:
-  if (pf != NULL) fclose(pf);
+  if (pf != NULL) mg_close(pf);
   if (df != NULL) {
-    fclose(df);
+    mg_close(df);
     if (!ret) remove(der_file);
   }
   return ret;

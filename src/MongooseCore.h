@@ -1,6 +1,13 @@
 #ifndef MongooseCore_h
 #define MongooseCore_h
 
+#ifdef ARDUINO
+#include <Arduino.h>
+#if MG_ENABLE_FILESYSTEM && defined(MG_USER_FILE_FUNCTIONS)
+#include <FS.h>
+#endif
+#endif
+
 #include "mongoose.h"
 
 class MongooseCore
