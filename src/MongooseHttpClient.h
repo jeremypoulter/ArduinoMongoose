@@ -31,6 +31,7 @@ class MongooseHttpClientRequest
     const char *_contentType;
     int64_t _contentLength;
     const uint8_t *_body;
+    const char *_extraHeaders;
 
   public:
     MongooseHttpClientRequest(MongooseHttpClient *client, const char *uri);
@@ -57,6 +58,7 @@ class MongooseHttpClientRequest
       return addHeader(name.c_str(), value.c_str());
     };
 #endif
+    void addExtraHeaders(const char *extraheaders) { _extraHeaders = extraheaders; }
 
     void onResponse(MongooseHttpResponseHandler handler) {
       _onResponse = handler;
