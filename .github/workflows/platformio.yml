@@ -29,6 +29,8 @@ jobs:
           board: esp-wrover-kit
         - example: simple_http_server
           board: esp-wrover-kit-secure
+        - example: simple_http_server
+          board: native
         - example: simple_http_client
           board: huzzah
         - example: simple_http_client
