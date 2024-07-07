@@ -21,8 +21,6 @@ jobs:
           board: native
         - example: simplest_web_server_native
           board: windows_x86
-        - example: simple_http_client_native
-          board: native
         - example: streaming_http_client_native
           board: native
         - example: simple_http_server
@@ -37,6 +35,8 @@ jobs:
           board: esp-wrover-kit
         - example: simple_http_client
           board: esp-wrover-kit-secure
+        - example: simple_http_client
+          board: native
         - example: simple_mqtt_client
           board: huzzah
         - example: simple_mqtt_client
