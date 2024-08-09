@@ -45,6 +45,8 @@ jobs:
           board: esp-wrover-kit
         - example: simple_mqtt_client
           board: esp-wrover-kit-secure
+        - example: simple_mqtt_client
+          board: native
         - example: websocket_chat
           board: huzzah
         - example: websocket_chat
@@ -61,6 +63,8 @@ jobs:
           board: huzzah
         - example: sntp_client
           board: esp-wrover-kit
+        - example: sntp_client
+          board: native
 
     runs-on: ubuntu-latest
     name: Build ${{ matrix.example }}-${{ matrix.board }}
