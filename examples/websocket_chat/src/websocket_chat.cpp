@@ -22,7 +22,7 @@
 
 #ifndef LOGF
 #ifdef ARDUINO
-#define LOGF LOGF
+#define LOGF Serial.printf
 #else
 #define LOGF printf
 #endif
@@ -209,13 +209,11 @@ void setup()
     return;
   }
 
-  LOGF("IP Address: ");
-  LOGF(WiFi.localIP());
-  LOGF("Hostname: ");
+  LOGF("IP Address: %s\n", WiFi.localIP().toString().c_str());
 #ifdef ESP32
-  LOGF(WiFi.getHostname());
+  LOGF("Hostname: %s\n", WiFi.getHostname());
 #elif defined(ESP8266)
-  LOGF(WiFi.hostname());
+  LOGF("Hostname: %s\n", WiFi.hostname().c_str());
 #endif
 #endif
 #endif
