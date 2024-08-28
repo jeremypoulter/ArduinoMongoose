@@ -53,6 +53,8 @@ jobs:
           board: esp-wrover-kit
         - example: websocket_chat
           board: esp-wrover-kit-secure
+        - example: websocket_chat
+          board: native
         - example: esp_ota_http_server
           board: esp-wrover-kit
         - example: esp_ota_http_server

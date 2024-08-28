@@ -5,7 +5,10 @@
 //  * handle missing pages / 404s
 //
 
+#ifdef ARDUINO
 #include <Arduino.h>
+#endif
+
 #include <MongooseCore.h>
 #include <MongooseHttpServer.h>
 
@@ -15,14 +18,32 @@
 #elif defined(ESP8266)
 #include <ESP8266WiFi.h>
 #define START_ESP_WIFI
+#endif
+
+#ifndef LOGF
+#ifdef ARDUINO
+#define LOGF LOGF
 #else
-#error Platform not supported
+#define LOGF printf
+#endif
 #endif
 
 MongooseHttpServer server;
 
+#ifdef START_ESP_WIFI
 const char *ssid = "wifi";
 const char *password = "password";
+#endif
+
+#ifndef DEFAULT_PORT
+#ifdef SIMPLE_SERVER_SECURE
+#define DEFAULT_PORT 443
+#else
+#define DEFAULT_PORT 80
+#endif
+#endif
+
+int port = DEFAULT_PORT;
 
 const char *server_pem = 
 "-----BEGIN CERTIFICATE-----\r\n"
@@ -162,8 +183,6 @@ const char *index_page =
 "</body>\n"
 "</html>\n";
 
-#include <Arduino.h>
-
 void broadcast(MongooseHttpWebSocketConnection *from, MongooseString msg)
 {
   char buf[500];
@@ -178,6 +197,7 @@ void broadcast(MongooseHttpWebSocketConnection *from, MongooseString msg)
 
 void setup()
 {
+#ifdef ARDUINO
   Serial.begin(115200);
 
 #ifdef START_ESP_WIFI
@@ -185,30 +205,32 @@ void setup()
   WiFi.begin(ssid, password);
   if (WiFi.waitForConnectResult() != WL_CONNECTED)
   {
-    Serial.printf("WiFi Failed!\n");
+    LOGF("WiFi Failed!\n");
     return;
   }
 
-  Serial.print("IP Address: ");
-  Serial.println(WiFi.localIP());
-  Serial.print("Hostname: ");
+  LOGF("IP Address: ");
+  LOGF(WiFi.localIP());
+  LOGF("Hostname: ");
 #ifdef ESP32
-  Serial.println(WiFi.getHostname());
+  LOGF(WiFi.getHostname());
 #elif defined(ESP8266)
-  Serial.println(WiFi.hostname());
+  LOGF(WiFi.hostname());
+#endif
 #endif
 #endif
 
   Mongoose.begin();
 
 #ifdef SIMPLE_SERVER_SECURE
-  if(false == server.begin(443, server_pem, server_key)) {
-    Serial.print("Failed to start server");
+  if(false == server.begin(port, server_pem, server_key)) {
+    LOGF("Failed to start server\n");
     return;
   }
 #else
-  server.begin(80);
+  server.begin(port);
 #endif
+  LOGF("Server started on port %d\n", port);
 
   server.on("/$", HTTP_GET, [](MongooseHttpServerRequest *request) {
     request->send(200, "text/html", index_page);
@@ -231,5 +253,43 @@ void setup()
 void loop()
 {
   Mongoose.poll(1000);
-  Serial.printf("Free memory %u\n", ESP.getFreeHeap());
+  //LOGF("Free memory %u\n", ESP.getFreeHeap());
 }
+
+#ifndef ARDUINO
+void usage(const char *name)
+{
+  fprintf(stderr, "Usage: %s [--port <port>]\n", name);
+}
+
+int main(int argc, char *argv[])
+{
+  int i;
+
+  for (i = 1; i < argc; i++) 
+  {
+    if (strcmp(argv[i], "--help") == 0)
+    {
+      usage(argv[0]);
+      exit(EXIT_SUCCESS);
+    } 
+    else if (strcmp(argv[i], "--port") == 0)
+    {
+      if (i + 1 < argc) {
+        port = atoi(argv[i + 1]);
+        i++;
+      } else {
+        usage(argv[0]);
+        exit(EXIT_FAILURE);
+      }
+    } else {
+      break;
+    }
+  }
+
+  setup();
+  while(true) {
+    loop();
+  }
+}
+#endif
