@@ -12,6 +12,7 @@
 #include "MongooseMqttClient.h"
 
 MongooseMqttClient::MongooseMqttClient() :
+  MongooseSocket(),
   _client_id(NULL),
   _username(NULL),
   _password(NULL),
@@ -20,7 +21,6 @@ MongooseMqttClient::MongooseMqttClient() :
   _will_topic(NULL),
   _will_message(NULL),
   _will_retain(false),
-  _nc(NULL),
   _connected(false),
   _reject_unauthorized(true),
   _onConnect(NULL),
@@ -36,51 +36,49 @@ MongooseMqttClient::~MongooseMqttClient()
 
 }
 
-void MongooseMqttClient::eventHandler(struct mg_connection *nc, int ev, void *p, void *u)
+void MongooseMqttClient::onConnect(int error)
 {
-  MongooseMqttClient *self = (MongooseMqttClient *)u;
-  self->eventHandler(nc, ev, p);
+  if(0 == error)
+  {
+    struct mg_send_mqtt_handshake_opts opts;
+    memset(&opts, 0, sizeof(opts));
+    opts.user_name = _username;
+    opts.password = _password;
+    opts.will_topic = _will_topic;
+    opts.will_message = _will_message;
+    
+    if(_will_retain) {
+      opts.flags |= MG_MQTT_WILL_RETAIN;
+    }
+    
+    DBUGVAR(_client_id);
+    DBUGVAR(opts.user_name);
+    DBUGVAR(opts.password);
+    DBUGVAR(opts.will_topic);
+    DBUGVAR(opts.will_message);
+    DBUGVAR(opts.flags);
+
+    mg_set_protocol_mqtt(getConnection());
+    mg_send_mqtt_handshake_opt(getConnection(), _client_id, opts);
+  } else {
+    DBUGVAR(error);
+    _onError(error);
+  }
 }
 
-void MongooseMqttClient::eventHandler(struct mg_connection *nc, int ev, void *p)
+void MongooseMqttClient::onClose()
+{
+  _connected = false;
+  if(_onClose) {
+    _onClose();
+  }
+}
+
+void MongooseMqttClient::onEvent(int ev, void *p)
 {
   struct mg_mqtt_message *msg = (struct mg_mqtt_message *) p;
-
-  if (ev != MG_EV_POLL) { DBUGF("%s %p: %d", __PRETTY_FUNCTION__, nc, ev); }
-
   switch (ev) 
   {
-    case MG_EV_CONNECT: {
-      int err = *((int *)p);
-      if(0 == err)
-      {
-        struct mg_send_mqtt_handshake_opts opts;
-        memset(&opts, 0, sizeof(opts));
-        opts.user_name = _username;
-        opts.password = _password;
-        opts.will_topic = _will_topic;
-        opts.will_message = _will_message;
-        
-        if(_will_retain) {
-          opts.flags |= MG_MQTT_WILL_RETAIN;
-        }
-        
-        DBUGVAR(_client_id);
-        DBUGVAR(opts.user_name);
-        DBUGVAR(opts.password);
-        DBUGVAR(opts.will_topic);
-        DBUGVAR(opts.will_message);
-        DBUGVAR(opts.flags);
-
-        mg_set_protocol_mqtt(nc);
-        mg_send_mqtt_handshake_opt(nc, _client_id, opts);
-      } else {
-        DBUGVAR(err);
-        _onError(err);
-      }
-      break;
-    }
-
     case MG_EV_MQTT_CONNACK:
       if (MG_EV_MQTT_CONNACK_ACCEPTED == msg->connack_ret_code) {
         _connected = true;
@@ -91,7 +89,6 @@ void MongooseMqttClient::eventHandler(struct mg_connection *nc, int ev, void *p)
         DBUGF("Got mqtt connection error: %d", msg->connack_ret_code);
         if(_onError) {
           _onError(msg->connack_ret_code);
-          _nc = NULL;
         }
       }
       break;
@@ -112,22 +109,12 @@ void MongooseMqttClient::eventHandler(struct mg_connection *nc, int ev, void *p)
       }
       break;
     }
-
-    case MG_EV_CLOSE: {
-      DBUGF("Connection %p closed", nc);
-      if(_onClose) {
-        _onClose();
-      }
-      _nc = NULL;
-      _connected = false;
-      break;
-    }
   }
 }
 
 bool MongooseMqttClient::connect(MongooseMqttProtocol protocol, const char *server, const char *client_id, MongooseMqttConnectionHandler onConnect)
 {
-  if(NULL == _nc) 
+  if(NULL == getConnection()) 
   {
     struct mg_connect_opts opts;
     bool secure = false;
@@ -158,8 +145,9 @@ bool MongooseMqttClient::connect(MongooseMqttProtocol protocol, const char *serv
     DBUGF("Trying to connect to %s", server);
     _onConnect = onConnect;
     _client_id = client_id;
-    _nc = mg_connect_opt(Mongoose.getMgr(), server, eventHandler, this, opts);
-    if(_nc) {
+    if(MongooseSocket::connect(
+      mg_connect_opt(Mongoose.getMgr(), server, eventHandler, this, opts)))
+    {
       return true;
     }
 
@@ -175,7 +163,7 @@ bool MongooseMqttClient::subscribe(const char *topic)
     struct mg_mqtt_topic_expression s_topic_expr = {NULL, 0};
     s_topic_expr.topic = topic;
     DBUGF("Subscribing to '%s'", topic);
-    mg_mqtt_subscribe(_nc, &s_topic_expr, 1, 42);
+    mg_mqtt_subscribe(getConnection(), &s_topic_expr, 1, 42);
     return true;
   }
   return false;
@@ -189,7 +177,7 @@ bool MongooseMqttClient::publish(const char *topic, mg_str payload, bool retain,
   }
   
   if(connected()) {
-    mg_mqtt_publish(_nc, topic, 65, flags, payload.p, payload.len);
+    mg_mqtt_publish(getConnection(), topic, 65, flags, payload.p, payload.len);
     return true;
   }
 
@@ -199,8 +187,8 @@ bool MongooseMqttClient::publish(const char *topic, mg_str payload, bool retain,
 bool MongooseMqttClient::disconnect()
 {
   if(connected()) {
-    mg_mqtt_disconnect(_nc);
-    _nc->flags |= MG_F_SEND_AND_CLOSE;
+    mg_mqtt_disconnect(getConnection());
+    MongooseSocket::disconnect();
     return true;
   }
 

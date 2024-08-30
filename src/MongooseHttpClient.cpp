@@ -26,7 +26,7 @@ MongooseHttpClient::~MongooseHttpClient()
 void MongooseHttpClient::eventHandler(struct mg_connection *nc, int ev, void *p, void *u)
 {
   MongooseHttpClientRequest *request = (MongooseHttpClientRequest *)u;
-  request->_client ->eventHandler(nc, request, ev, p);
+  request->_client->eventHandler(nc, request, ev, p);
 }
 
 void MongooseHttpClient::eventHandler(struct mg_connection *nc, MongooseHttpClientRequest *request, int ev, void *p)

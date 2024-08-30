@@ -10,6 +10,7 @@
 #include <functional>
 
 #include "MongooseString.h"
+#include "MongooseSocket.h"
 
 class MongooseMqttClient;
 
@@ -25,7 +26,7 @@ typedef enum {
   MQTT_WSS  // TODO
 } MongooseMqttProtocol;
 
-class MongooseMqttClient
+class MongooseMqttClient : public MongooseSocket
 {
   private:
     const char *_client_id;
@@ -36,7 +37,6 @@ class MongooseMqttClient
     const char *_will_topic;
     const char *_will_message;
     bool _will_retain;
-    struct mg_connection *_nc;
     bool _connected;
     bool _reject_unauthorized; 
 
@@ -46,8 +46,9 @@ class MongooseMqttClient
     MongooseMqttCloseHandler _onClose;
 
   protected:
-    static void eventHandler(struct mg_connection *nc, int ev, void *p, void *u);
-    void eventHandler(struct mg_connection *nc, int ev, void *p);
+    void onConnect(int error);
+    void onClose();
+    void onEvent(int ev, void *p);
 
   public:
     MongooseMqttClient();
@@ -96,7 +97,7 @@ class MongooseMqttClient
   bool disconnect();
 
   bool connected() {
-    return _nc &&  _connected;
+    return MongooseSocket::connected() &&  _connected;
   }
 
   void onMessage(MongooseMqttMessageHandler fnHandler) {
