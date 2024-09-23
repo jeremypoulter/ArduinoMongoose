@@ -12,7 +12,9 @@
 #include "MongooseSocket.h"
 
 MongooseSocket::MongooseSocket() :
-  _nc(nullptr)
+  _nc(nullptr),
+  _onError(NULL),
+  _onClose(NULL)
 {
 
 }
@@ -43,8 +45,13 @@ void MongooseSocket::eventHandler(struct mg_connection *nc, int ev, void *p)
     case MG_EV_CONNECT:
     {
       int err = *((int *)p);
-      DBUGF("MG_EV_CONNECT, error = %d", err);
-      onConnect(err);
+      if(0 == err) {
+        DBUGF("MG_EV_CONNECT, success");
+        onConnect();
+      } else {
+        DBUGF("MG_EV_CONNECT, error = %d", err);
+        onError(err);
+      }
       break;
     }
 
@@ -80,9 +87,17 @@ void MongooseSocket::eventHandler(struct mg_connection *nc, int ev, void *p)
   }
 }
 
-void MongooseSocket::onConnect(int error)
+void MongooseSocket::onConnect()
 {
-  DBUGF("Connected with error %d", error);
+  DBUGF("Successfully Connected");
+}
+
+void MongooseSocket::onError(int error)
+{
+  DBUGF("Socket with error %d", error);
+  if(_onError) {
+    _onError(error);
+  }
 }
 
 void MongooseSocket::onReceive(int num_bytes)
@@ -98,6 +113,9 @@ void MongooseSocket::onSend(int num_bytes)
 void MongooseSocket::onClose()
 {
   DBUGF("Connection closed");
+  if(_onClose) {
+    _onClose();
+  }
 }
 
 void MongooseSocket::onEvent(int ev, void *p)

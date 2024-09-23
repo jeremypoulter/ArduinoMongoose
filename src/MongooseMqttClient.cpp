@@ -24,9 +24,7 @@ MongooseMqttClient::MongooseMqttClient() :
   _connected(false),
   _reject_unauthorized(true),
   _onConnect(NULL),
-  _onMessage(NULL),
-  _onError(NULL),
-  _onClose(NULL)
+  _onMessage(NULL)
 {
 
 }
@@ -36,42 +34,34 @@ MongooseMqttClient::~MongooseMqttClient()
 
 }
 
-void MongooseMqttClient::onConnect(int error)
+void MongooseMqttClient::onConnect()
 {
-  if(0 == error)
-  {
-    struct mg_send_mqtt_handshake_opts opts;
-    memset(&opts, 0, sizeof(opts));
-    opts.user_name = _username;
-    opts.password = _password;
-    opts.will_topic = _will_topic;
-    opts.will_message = _will_message;
-    
-    if(_will_retain) {
-      opts.flags |= MG_MQTT_WILL_RETAIN;
-    }
-    
-    DBUGVAR(_client_id);
-    DBUGVAR(opts.user_name);
-    DBUGVAR(opts.password);
-    DBUGVAR(opts.will_topic);
-    DBUGVAR(opts.will_message);
-    DBUGVAR(opts.flags);
-
-    mg_set_protocol_mqtt(getConnection());
-    mg_send_mqtt_handshake_opt(getConnection(), _client_id, opts);
-  } else {
-    DBUGVAR(error);
-    _onError(error);
+  struct mg_send_mqtt_handshake_opts opts;
+  memset(&opts, 0, sizeof(opts));
+  opts.user_name = _username;
+  opts.password = _password;
+  opts.will_topic = _will_topic;
+  opts.will_message = _will_message;
+  
+  if(_will_retain) {
+    opts.flags |= MG_MQTT_WILL_RETAIN;
   }
+  
+  DBUGVAR(_client_id);
+  DBUGVAR(opts.user_name);
+  DBUGVAR(opts.password);
+  DBUGVAR(opts.will_topic);
+  DBUGVAR(opts.will_message);
+  DBUGVAR(opts.flags);
+
+  mg_set_protocol_mqtt(getConnection());
+  mg_send_mqtt_handshake_opt(getConnection(), _client_id, opts);
 }
 
 void MongooseMqttClient::onClose()
 {
   _connected = false;
-  if(_onClose) {
-    _onClose();
-  }
+  MongooseSocket::onClose();
 }
 
 void MongooseMqttClient::onEvent(int ev, void *p)
@@ -87,9 +77,7 @@ void MongooseMqttClient::onEvent(int ev, void *p)
         }
       } else {
         DBUGF("Got mqtt connection error: %d", msg->connack_ret_code);
-        if(_onError) {
-          _onError(msg->connack_ret_code);
-        }
+        onError(msg->connack_ret_code);
       }
       break;
 

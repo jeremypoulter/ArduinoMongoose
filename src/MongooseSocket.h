@@ -9,16 +9,23 @@
 
 #include <functional>
 
+typedef std::function<void(int retCode)> MongooseSocketErrorHandler;
+typedef std::function<void()> MongooseSocketCloseHandler;
+
 class MongooseSocket
 {
   private:
     mg_connection *_nc;
 
+    MongooseSocketErrorHandler _onError;
+    MongooseSocketCloseHandler _onClose;
+
   protected:
     static void eventHandler(struct mg_connection *nc, int ev, void *p, void *u);
     void eventHandler(struct mg_connection *nc, int ev, void *p);
 
-    virtual void onConnect(int error);
+    virtual void onConnect();
+    virtual void onError(int error);
     virtual void onReceive(int num_bytes);
     virtual void onSend(int num_bytes);
     virtual void onClose();
@@ -37,6 +44,12 @@ class MongooseSocket
 
     virtual bool connected() {
       return _nc;
+    }
+    void onError(MongooseSocketErrorHandler fnHandler) {
+      _onError = fnHandler;
+    }
+    void onClose(MongooseSocketCloseHandler fnHandler) {
+      _onClose = fnHandler;
     }
 };
 
