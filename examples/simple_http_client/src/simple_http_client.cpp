@@ -107,7 +107,7 @@ const char *root_ca =
 
 void printResponse(MongooseHttpClientResponse *response)
 {
-  LOGF("%d %.*s\n", response->respCode(), response->respStatusMsg().length(), (const char *)response->respStatusMsg());
+  LOGF("%d %.*s\n", response->respCode(), (int)response->respStatusMsg().length(), (const char *)response->respStatusMsg());
   int headers = response->headers();
   int i;
   for(i=0; i<headers; i++) {

@@ -74,8 +74,8 @@ void MongooseSocket::eventHandler(struct mg_connection *nc, int ev, void *p)
     case MG_EV_CLOSE:
     {
       DBUGF("Connection %p closed", nc);
-      onClose();
       _nc = nullptr;
+      onClose();
       break;
     }
 
@@ -129,9 +129,10 @@ bool MongooseSocket::connect(mg_connection *nc)
   return nc != nullptr;
 }
 
-void MongooseSocket::disconnect()
+void MongooseSocket::setFlags(unsigned long mask, unsigned long flags)
 {
+  // IMPROVE: check that only the user flags are set
   if(_nc) {
-    _nc->flags |= MG_F_SEND_AND_CLOSE;
+    _nc->flags = (_nc->flags & ~mask) | flags;
   }
 }

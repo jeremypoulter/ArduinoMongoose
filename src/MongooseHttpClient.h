@@ -10,6 +10,7 @@
 #include <functional>
 
 #include "MongooseString.h"
+#include "MongooseSocket.h"
 #include "MongooseHttp.h"
 
 class MongooseHttpClient;
@@ -17,17 +18,12 @@ class MongooseHttpClientRequest;
 class MongooseHttpClientResponse;
 
 typedef std::function<void(MongooseHttpClientResponse *request)> MongooseHttpResponseHandler;
-typedef std::function<void()> MongooseHttpCloseHandler;
 
-class MongooseHttpClientRequest
+class MongooseHttpClientRequest : public MongooseSocket
 {
-  friend MongooseHttpClient;
-
   private:
-    MongooseHttpClient *_client;
     MongooseHttpResponseHandler _onResponse;
     MongooseHttpResponseHandler _onBody;
-    MongooseHttpCloseHandler _onClose;
 
     const char *_uri;
     HttpRequestMethodComposite _method;
@@ -36,11 +32,15 @@ class MongooseHttpClientRequest
     const uint8_t *_body;
     char *_extraHeaders;
 
-    mg_connection *_nc;
+  protected:
+    void onEvent(int ev, void *p);
+    void onClose();
 
   public:
-    MongooseHttpClientRequest(MongooseHttpClient *client, const char *uri);
+    MongooseHttpClientRequest(const char *uri);
     virtual ~MongooseHttpClientRequest();
+
+    bool send();
 
     MongooseHttpClientRequest *setMethod(HttpRequestMethodComposite method) {
       _method = method;
@@ -83,13 +83,10 @@ class MongooseHttpClientRequest
       return this;
     }
 
-    // Request may be NULL if the socket fails to connect
-    MongooseHttpClientRequest *onClose(MongooseHttpCloseHandler handler) {
-      _onClose = handler;
+    MongooseHttpClientRequest *onClose(MongooseSocketCloseHandler handler) {
+      MongooseSocket::onClose(handler);
       return this;
     }
-
-    void abort();
 };
 
 class MongooseHttpClientResponse {
@@ -104,7 +101,6 @@ class MongooseHttpClientResponse {
 
     ~MongooseHttpClientResponse() {
     }
-
 
     MongooseString message() {
       return MongooseString(_msg->message);
@@ -164,33 +160,26 @@ class MongooseHttpClientResponse {
 
 class MongooseHttpClient
 {
-  private:
-
-  protected:
-    static void eventHandler(struct mg_connection *nc, int ev, void *p, void *u);
-    void eventHandler(struct mg_connection *nc, MongooseHttpClientRequest *request, int ev, void *p);
-
   public:
     MongooseHttpClient();
     ~MongooseHttpClient();
 
     MongooseHttpClientRequest *beginRequest(const char *uri);
-    void send(MongooseHttpClientRequest *request);
 
-    void get(const char* uri, MongooseHttpResponseHandler onResponse = NULL, MongooseHttpCloseHandler onClose = NULL);
-    void post(const char* uri, const char *contentType, const char *body, MongooseHttpResponseHandler onResponse = NULL, MongooseHttpCloseHandler onClose = NULL);
+    bool get(const char* uri, MongooseHttpResponseHandler onResponse = NULL, MongooseSocketCloseHandler onClose = NULL);
+    bool post(const char* uri, const char *contentType, const char *body, MongooseHttpResponseHandler onResponse = NULL, MongooseSocketCloseHandler onClose = NULL);
 
 #ifdef ARDUINO
-    void get(String &uri, MongooseHttpResponseHandler onResponse = NULL, MongooseHttpCloseHandler onClose = NULL) {
+    bool get(String &uri, MongooseHttpResponseHandler onResponse = NULL, MongooseSocketCloseHandler onClose = NULL) {
       get(uri.c_str(), onResponse, onClose);
     }
-    void post(String &uri, const char *contentType, const char *body, MongooseHttpResponseHandler onResponse = NULL, MongooseHttpCloseHandler onClose = NULL) {
+    bool post(String &uri, const char *contentType, const char *body, MongooseHttpResponseHandler onResponse = NULL, MongooseSocketCloseHandler onClose = NULL) {
       post(uri.c_str(), contentType, body, onResponse, onClose);
     }
-    void post(String& uri, String& contentType, const char *body, MongooseHttpResponseHandler onResponse = NULL, MongooseHttpCloseHandler onClose = NULL) {
+    bool post(String& uri, String& contentType, const char *body, MongooseHttpResponseHandler onResponse = NULL, MongooseSocketCloseHandler onClose = NULL) {
       post(uri.c_str(), contentType.c_str(), body, onResponse, onClose);
     }
-    void post(String &uri, String& contentType, String& body, MongooseHttpResponseHandler onResponse = NULL, MongooseHttpCloseHandler onClose = NULL) {
+    bool post(String &uri, String& contentType, String& body, MongooseHttpResponseHandler onResponse = NULL, MongooseSocketCloseHandler onClose = NULL) {
       post(uri.c_str(), contentType.c_str(), body.c_str(), onResponse, onClose);
     }
 #endif // ARDUINO
