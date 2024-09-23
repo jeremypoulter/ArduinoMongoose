@@ -126,9 +126,9 @@ void setup()
   Mongoose.setRootCa(root_ca);
 #endif
 
-  snprintf(clientId, sizeof(clientId), "mg-%llx", deviceId);
+  snprintf(clientId, sizeof(clientId), "mg-%" PRIx64, deviceId);
   client.onMessage([](MongooseString topic, MongooseString payload) {
-    DBUGF("%.*s: %.*s", topic.length(), (const char *)topic, (int)payload.length(), (const char *)payload);
+    DBUGF("%.*s: %.*s", (int)topic.length(), (const char *)topic, (int)payload.length(), (const char *)payload);
     client.publish("/test", payload);
   });
   client.onError([](uint8_t err) {
