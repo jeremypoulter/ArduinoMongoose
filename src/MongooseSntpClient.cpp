@@ -14,9 +14,8 @@
 #if MG_ENABLE_SNTP
 
 MongooseSntpClient::MongooseSntpClient() :
-  _nc(NULL),
-  _onTime(NULL),
-  _onError(NULL)
+  MongooseSocket(),
+  _onTime(NULL)
 {
 
 }
@@ -26,18 +25,10 @@ MongooseSntpClient::~MongooseSntpClient()
 
 }
 
-void MongooseSntpClient::eventHandler(struct mg_connection *nc, int ev, void *p, void *u)
-{
-  MongooseSntpClient *self = (MongooseSntpClient *)u;
-  self->eventHandler(nc, ev, p);
-}
 
-void MongooseSntpClient::eventHandler(struct mg_connection *nc, int ev, void *p)
+void MongooseSntpClient::onEvent(int ev, void *p)
 {
   struct mg_sntp_message *msg = (struct mg_sntp_message *) p;
-
-  if (ev != MG_EV_POLL) { DBUGF("%s %p: %d", __PRETTY_FUNCTION__, nc, ev); }
-
   switch (ev) 
   {
     case MG_SNTP_REPLY:
@@ -47,28 +38,21 @@ void MongooseSntpClient::eventHandler(struct mg_connection *nc, int ev, void *p)
       break;
 
     case MG_SNTP_FAILED:
-      if(_onError) {
-        _onError(-1);
-      }
+      onError(-1);
       break;
-
-    case MG_EV_CLOSE: {
-      DBUGF("Connection %p closed", nc);
-      _nc = NULL;
-      break;
-    }
   }
 }
 
 bool MongooseSntpClient::getTime(const char *server, MongooseSntpTimeHandler onTime)
 {
-  if(NULL == _nc) 
+  if(!connected()) 
   {
     DBUGF("Trying to connect to %s", server);
     _onTime = onTime;
 
-    _nc = mg_sntp_get_time(Mongoose.getMgr(), eventHandler, server, this);
-    if(_nc) {
+    if(MongooseSocket::connect(
+      mg_sntp_get_time(Mongoose.getMgr(), eventHandler, server, this))) 
+    {
       return true;
     }
 
