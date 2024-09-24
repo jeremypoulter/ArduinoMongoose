@@ -119,7 +119,7 @@ int main(int argc, char *argv[])
 #endif
 
   // Based on https://github.com/typicode/jsonplaceholder#how-to
-  MongooseHttpClientRequest *request = client.beginRequest(s_url)->
+  client.beginRequest(s_url)->
     onBody([](MongooseHttpClientResponse *response) {
       if(s_show_headers && false == headers_shown) {
         printHeaders(response);
@@ -131,9 +131,7 @@ int main(int argc, char *argv[])
     })->
     onClose([]() {
       run = false;
-    });
-
-  client.send(request);
+    })->send();
 
   while(run) {
     Mongoose.poll(1000);
