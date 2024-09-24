@@ -72,6 +72,8 @@ jobs:
     name: Build ${{ matrix.example }}-${{ matrix.board }}
 
     steps:
+      - uses: ammaraskar/gcc-problem-matcher@master
+
       - uses: actions/checkout@v4
 
       - name: Set up Python
