@@ -9,12 +9,13 @@
 #endif
 
 #include <MicroDebug.h>
+#include <algorithm>
 
 #include "MongooseCore.h"
 #include "MongooseHttpServer.h"
 
 MongooseHttpServer::MongooseHttpServer() :
-  nc(NULL),
+  nc(nullptr),
   defaultEndpoint(this, HTTP_ANY)
 {
 
@@ -139,7 +140,7 @@ void MongooseHttpServer::eventHandler(struct mg_connection *nc, int ev, void *p,
 
       if(nc->user_connection_data) {
         delete (MongooseHttpServerRequest *)nc->user_connection_data;
-        nc->user_connection_data = NULL;
+        nc->user_connection_data = nullptr;
       }
       MongooseHttpServerRequest *request = 
 #if MG_ENABLE_HTTP_STREAMING_MULTIPART
@@ -161,10 +162,10 @@ void MongooseHttpServer::eventHandler(struct mg_connection *nc, int ev, void *p,
 
 #endif
         } else {
-          mg_http_send_error(nc, 404, NULL);
+          mg_http_send_error(nc, 404, nullptr);
         }
       } else {
-        mg_http_send_error(nc, 500, NULL);
+        mg_http_send_error(nc, 500, nullptr);
       }
       break;
     }
@@ -226,7 +227,7 @@ void MongooseHttpServer::eventHandler(struct mg_connection *nc, int ev, void *p,
         }
 
         delete request;
-        nc->user_connection_data = NULL;
+        nc->user_connection_data = nullptr;
       } 
       break;
     }
@@ -262,9 +263,9 @@ void MongooseHttpServer::sendAll(MongooseHttpWebSocketConnection *from, const ch
 {
   mg_mgr *mgr = Mongoose.getMgr();
 
-  const struct mg_connection *nc = from ? from->getConnection() : NULL;
+  const struct mg_connection *nc = from ? from->getConnection() : nullptr;
   struct mg_connection *c;
-  for (c = mg_next(mgr, NULL); c != NULL; c = mg_next(mgr, c)) {
+  for (c = mg_next(mgr, nullptr); c != nullptr; c = mg_next(mgr, c)) {
     if (c == nc) { 
       continue; /* Don't send to the sender. */
     }
@@ -291,7 +292,7 @@ MongooseHttpServerRequest::MongooseHttpServerRequest(MongooseHttpServer *server,
 #else
   _msg(msg),
 #endif
-  _response(NULL),
+  _response(nullptr),
   _responseSent(false)
 {
   if(0 == mg_vcasecmp(&msg->method, "GET")) {
@@ -315,13 +316,13 @@ MongooseHttpServerRequest::~MongooseHttpServerRequest()
 {
   if(_response) {
     delete _response;
-    _response = NULL;
+    _response = nullptr;
   }
 
 #if MG_COPY_HTTP_MESSAGE
   mg_strfree(&_msg->message);
   delete _msg;
-  _msg = NULL;
+  _msg = nullptr;
 #endif
 }
 
@@ -330,7 +331,7 @@ MongooseHttpServerRequest::~MongooseHttpServerRequest()
 mg_str mg_mk_str_from_offsets(mg_str &dest, mg_str &src, mg_str &value) {
   mg_str s;
 
-  s.p = value.p ? (dest.p + (value.p - src.p)) : NULL;
+  s.p = value.p ? (dest.p + (value.p - src.p)) : nullptr;
   s.len = value.len;
 
   return s;
@@ -395,7 +396,7 @@ void MongooseHttpServerRequest::send(MongooseHttpServerResponse *response)
 {
   if(_response) {
     delete _response;
-    _response = NULL;
+    _response = nullptr;
   }
 
   response->sendHeaders(_nc);
@@ -420,7 +421,7 @@ void MongooseHttpServerRequest::sendBody()
       if(sent < free) {
         DBUGLN("Response finished");
         delete _response;
-        _response = NULL;
+        _response = nullptr;
       }
     }
   }
@@ -606,9 +607,9 @@ void MongooseHttpServerRequest::requestAuthentication(const char* realm)
 
 MongooseHttpServerResponse::MongooseHttpServerResponse() :
   _code(200),
-  _contentType(NULL),
+  _contentType(nullptr),
   _contentLength(-1),
-  _headerBuffer(NULL)
+  _headerBuffer(nullptr)
 {
 
 }
@@ -617,12 +618,12 @@ MongooseHttpServerResponse::~MongooseHttpServerResponse()
 {
   if(_contentType) {
     free(_contentType);
-    _contentType = NULL;
+    _contentType = nullptr;
   }
 
   if(_headerBuffer) {
     free(_headerBuffer);
-    _headerBuffer = NULL;
+    _headerBuffer = nullptr;
   }
 }
 void MongooseHttpServerResponse::sendHeaders(struct mg_connection *nc)
