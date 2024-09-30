@@ -34,7 +34,7 @@ MongooseMqttClient::~MongooseMqttClient()
 
 }
 
-void MongooseMqttClient::onConnect()
+void MongooseMqttClient::onConnect(mg_connection *nc)
 {
   struct mg_send_mqtt_handshake_opts opts;
   memset(&opts, 0, sizeof(opts));
@@ -58,13 +58,13 @@ void MongooseMqttClient::onConnect()
   mg_send_mqtt_handshake_opt(getConnection(), _client_id, opts);
 }
 
-void MongooseMqttClient::onClose()
+void MongooseMqttClient::onClose(mg_connection *nc)
 {
   _connected = false;
-  MongooseSocket::onClose();
+  MongooseSocket::onClose(nc);
 }
 
-void MongooseMqttClient::onEvent(int ev, void *p)
+void MongooseMqttClient::onEvent(mg_connection *nc, int ev, void *p)
 {
   struct mg_mqtt_message *msg = (struct mg_mqtt_message *) p;
   switch (ev) 
@@ -77,7 +77,7 @@ void MongooseMqttClient::onEvent(int ev, void *p)
         }
       } else {
         DBUGF("Got mqtt connection error: %d", msg->connack_ret_code);
-        onError(msg->connack_ret_code);
+        onError(nc, msg->connack_ret_code);
       }
       break;
 

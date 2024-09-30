@@ -78,7 +78,7 @@ MongooseHttpClientRequest::~MongooseHttpClientRequest()
   }
 }
 
-void MongooseHttpClientRequest::onEvent(int ev, void *p)
+void MongooseHttpClientRequest::onEvent(mg_connection *nc, int ev, void *p)
 {
   switch (ev)
   {
@@ -112,9 +112,9 @@ void MongooseHttpClientRequest::onEvent(int ev, void *p)
   }
 }
 
-void MongooseHttpClientRequest::onClose()
+void MongooseHttpClientRequest::onClose(mg_connection *nc)
 {
-  MongooseSocket::onClose();
+  MongooseSocket::onClose(nc);
   delete this;
 }
 

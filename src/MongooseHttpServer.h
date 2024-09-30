@@ -16,6 +16,7 @@
 
 #include "MongooseString.h"
 #include "MongooseHttp.h"
+#include "MongooseSocket.h"
 
 // Make a copy of the HTTP header so it is avalible outside of the onReceive
 // callback. Setting to 0 will save some runtime memory but accessing the HTTP
@@ -36,13 +37,13 @@ class MongooseHttpServerResponseStream;
 class MongooseHttpWebSocketConnection;
 #define MG_F_IS_MongooseHttpWebSocketConnection MG_F_USER_1
 #endif
+class MongooseHttpServerEndpoint;
 
-
-class MongooseHttpServerRequest {
-  friend MongooseHttpServer;
+class MongooseHttpServerRequest
+{
+  friend MongooseHttpServerEndpoint;
 
   protected:
-    MongooseHttpServer *_server;
     mg_connection *_nc;
     http_message *_msg;
     HttpRequestMethodComposite _method;
@@ -56,7 +57,7 @@ class MongooseHttpServerRequest {
 #endif
 
   public:
-    MongooseHttpServerRequest(MongooseHttpServer *server, mg_connection *nc, http_message *msg);
+    MongooseHttpServerRequest(mg_connection *nc, http_message *msg);
     virtual ~MongooseHttpServerRequest();
 
     virtual bool isUpload() { return false; }
@@ -186,8 +187,8 @@ class MongooseHttpServerRequestUpload : public MongooseHttpServerRequest
     uint64_t index;
 
   public:
-    MongooseHttpServerRequestUpload(MongooseHttpServer *server, mg_connection *nc, http_message *msg) :
-      MongooseHttpServerRequest(server, nc, msg),
+    MongooseHttpServerRequestUpload(mg_connection *nc, http_message *msg) :
+      MongooseHttpServerRequest(nc, msg),
       index(0)
     {
     }
@@ -280,58 +281,75 @@ typedef std::function<void(MongooseHttpWebSocketConnection *connection)> Mongoos
 typedef std::function<void(MongooseHttpWebSocketConnection *connection, int flags, uint8_t *data, size_t len)> MongooseHttpWebSocketFrameHandler;
 #endif
 
-class MongooseHttpServerEndpoint
+class MongooseHttpServerEndpoint : public MongooseSocket
 {
-  friend MongooseHttpServer;
-
   private:
-    MongooseHttpServer *server;
-    HttpRequestMethodComposite method;
-    MongooseHttpRequestHandler request;
-    MongooseHttpUploadHandler upload;
-    MongooseHttpRequestHandler close;
+    HttpRequestMethodComposite _method;
+    MongooseHttpRequestHandler _request;
+    MongooseHttpUploadHandler _upload;
+    MongooseHttpRequestHandler _close;
 #if MG_ENABLE_HTTP_WEBSOCKET
-    MongooseHttpWebSocketConnectionHandler wsConnect;
-    MongooseHttpWebSocketFrameHandler wsFrame;
+    MongooseHttpWebSocketConnectionHandler _wsConnect;
+    MongooseHttpWebSocketFrameHandler _wsFrame;
 #endif
+
+    void onEvent(mg_connection *nc, int ev, void *p);
+    void onPoll(mg_connection *nc);
+    void onSend(mg_connection *nc, int num_bytes) {
+      onPoll(nc);
+    }
+    void onClose(mg_connection *nc);
+
   public:
-    MongooseHttpServerEndpoint(MongooseHttpServer *server, HttpRequestMethodComposite method) :
-      server(server),
-      method(method),
-      request(NULL),
-      upload(NULL),
-      close(NULL)
+    MongooseHttpServerEndpoint(HttpRequestMethodComposite method) :
+      MongooseSocket(),
+      _method(HTTP_ANY),
+      _request(NULL),
+      _upload(NULL)
 #if MG_ENABLE_HTTP_WEBSOCKET
       ,
-      wsConnect(NULL),
-      wsFrame(NULL)
+      _wsConnect(NULL),
+      _wsFrame(NULL)
 #endif
     {
+
+    }
+
+    bool attach(mg_connection *nc, const char *uri = nullptr, HttpRequestMethodComposite method = HTTP_ANY)
+    {
+      if(uri) {
+        _method = method;
+        mg_register_http_endpoint(nc, uri, eventHandler, this);
+      } else {
+        mg_set_protocol_http_websocket(nc);
+      }
+
+      return true;
     }
 
     MongooseHttpServerEndpoint *onRequest(MongooseHttpRequestHandler handler) {
-      this->request = handler;
+      this->_request = handler;
       return this;
     }
 
     MongooseHttpServerEndpoint *onUpload(MongooseHttpUploadHandler handler) {
-      this->upload = handler;
+      this->_upload = handler;
       return this;
     }
 
     MongooseHttpServerEndpoint *onClose(MongooseHttpRequestHandler handler) {
-      this->close = handler;
+      this->_close = handler;
       return this;
     }
 
 #if MG_ENABLE_HTTP_WEBSOCKET
     MongooseHttpServerEndpoint *onConnect(MongooseHttpWebSocketConnectionHandler handler) {
-      this->wsConnect = handler;
+      this->_wsConnect = handler;
       return this;
     }
 
     MongooseHttpServerEndpoint *onFrame(MongooseHttpWebSocketFrameHandler handler) {
-      this->wsFrame = handler;
+      this->_wsFrame = handler;
       return this;
     }
 #endif
@@ -340,10 +358,10 @@ class MongooseHttpServerEndpoint
 #if MG_ENABLE_HTTP_WEBSOCKET
 class MongooseHttpWebSocketConnection : public MongooseHttpServerRequest
 {
-  friend MongooseHttpServer;
+  friend MongooseHttpServerEndpoint;
 
   public:
-    MongooseHttpWebSocketConnection(MongooseHttpServer *server, mg_connection *nc, http_message *msg);
+    MongooseHttpWebSocketConnection(mg_connection *nc, http_message *msg);
     virtual ~MongooseHttpWebSocketConnection();
 
     virtual bool isWebSocket() { return true; }
@@ -367,15 +385,10 @@ class MongooseHttpWebSocketConnection : public MongooseHttpServerRequest
 };
 #endif
 
-class MongooseHttpServer
+class MongooseHttpServer : public MongooseHttpServerEndpoint
 {
   protected:
-    struct mg_connection *nc;
-    MongooseHttpServerEndpoint defaultEndpoint;
-
-    static void defaultEventHandler(struct mg_connection *nc, int ev, void *p, void *u);
-    static void endpointEventHandler(struct mg_connection *nc, int ev, void *p, void *u);
-    void eventHandler(struct mg_connection *nc, int ev, void *p, HttpRequestMethodComposite method, MongooseHttpServerEndpoint *endpoint);
+    void onEvent(int ev, void *p);
 
   public:
     MongooseHttpServer();

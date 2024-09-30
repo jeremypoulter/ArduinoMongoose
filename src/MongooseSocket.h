@@ -24,14 +24,21 @@ class MongooseSocket
     static void eventHandler(struct mg_connection *nc, int ev, void *p, void *u);
     void eventHandler(struct mg_connection *nc, int ev, void *p);
 
-    virtual void onConnect();
-    virtual void onError(int error);
-    virtual void onReceive(int num_bytes);
-    virtual void onSend(int num_bytes);
-    virtual void onClose();
-    virtual void onEvent(int ev, void *p);
+    virtual void onConnect(mg_connection *nc);
+    virtual void onAccept(mg_connection *nc, socket_address *addr);
+    virtual void onError(mg_connection *nc, int error);
+    virtual void onReceive(mg_connection *nc, int num_bytes);
+    virtual void onSend(mg_connection *nc, int num_bytes);
+    virtual void onPoll(mg_connection *nc);
+    virtual void onClose(mg_connection *nc);
+    virtual void onEvent(mg_connection *nc, int ev, void *p);
 
     bool connect(mg_connection *nc);
+    bool bind(uint16_t port);
+#if MG_ENABLE_SSL
+    bool bind(uint16_t port, const char *cert, const char *private_key);
+#endif
+    bool bind(uint16_t port, mg_bind_opts opts);
 
     mg_connection *getConnection() {
       return _nc;
@@ -50,6 +57,7 @@ class MongooseSocket
 
   public:
     MongooseSocket();
+    MongooseSocket(mg_connection *nc);
     ~MongooseSocket();
 
     virtual bool connected() {

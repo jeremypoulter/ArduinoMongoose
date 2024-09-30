@@ -33,8 +33,8 @@ class MongooseHttpClientRequest : public MongooseSocket
     char *_extraHeaders;
 
   protected:
-    void onEvent(int ev, void *p);
-    void onClose();
+    void onEvent(mg_connection *nc, int ev, void *p);
+    void onClose(mg_connection *nc);
 
   public:
     MongooseHttpClientRequest(const char *uri);

@@ -41,9 +41,9 @@ class MongooseMqttClient : public MongooseSocket
     MongooseMqttMessageHandler _onMessage;
 
   protected:
-    void onConnect();
-    void onClose();
-    void onEvent(int ev, void *p);
+    void onConnect(mg_connection *nc);
+    void onClose(mg_connection *nc);
+    void onEvent(mg_connection *nc, int ev, void *p);
 
   public:
     MongooseMqttClient();

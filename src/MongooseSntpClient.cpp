@@ -26,7 +26,7 @@ MongooseSntpClient::~MongooseSntpClient()
 }
 
 
-void MongooseSntpClient::onEvent(int ev, void *p)
+void MongooseSntpClient::onEvent(mg_connection *nc, int ev, void *p)
 {
   struct mg_sntp_message *msg = (struct mg_sntp_message *) p;
   switch (ev) 
@@ -38,7 +38,7 @@ void MongooseSntpClient::onEvent(int ev, void *p)
       break;
 
     case MG_SNTP_FAILED:
-      onError(-1);
+      onError(nc, -1);
       break;
   }
 }

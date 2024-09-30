@@ -15,8 +15,7 @@
 #include "MongooseHttpServer.h"
 
 MongooseHttpServer::MongooseHttpServer() :
-  nc(nullptr),
-  defaultEndpoint(this, HTTP_ANY)
+  MongooseHttpServerEndpoint(HTTP_ANY)
 {
 
 }
@@ -28,13 +27,10 @@ MongooseHttpServer::~MongooseHttpServer()
 
 bool MongooseHttpServer::begin(uint16_t port)
 {
-  char s_http_port[6];
-  utoa(port, s_http_port, 10);
-  nc = mg_bind(Mongoose.getMgr(), s_http_port, defaultEventHandler, this);
-  if(nc)
+  if(bind(port))
   {
     // Set up HTTP server parameters
-    mg_set_protocol_http_websocket(nc);
+    attach(getConnection());
 
     return true;
   }
@@ -45,22 +41,10 @@ bool MongooseHttpServer::begin(uint16_t port)
 #if MG_ENABLE_SSL
 bool MongooseHttpServer::begin(uint16_t port, const char *cert, const char *private_key)
 {
-  char s_http_port[6];
-  utoa(port, s_http_port, 10);
-
-  struct mg_bind_opts bind_opts;
-  const char *err;
-
-  memset(&bind_opts, 0, sizeof(bind_opts));
-  bind_opts.ssl_cert = cert;
-  bind_opts.ssl_key = private_key;
-  bind_opts.error_string = &err;
-
-  nc = mg_bind_opt(Mongoose.getMgr(), s_http_port, defaultEventHandler, this, bind_opts);
-  if(nc)
+  if(bind(port, cert, private_key))
   {
     // Set up HTTP server parameters
-    mg_set_protocol_http_websocket(nc);
+    mg_set_protocol_http_websocket(getConnection());
 
     return true;
   }
@@ -86,44 +70,48 @@ MongooseHttpServerEndpoint *MongooseHttpServer::on(const char* uri, HttpRequestM
 
 MongooseHttpServerEndpoint *MongooseHttpServer::on(const char* uri, HttpRequestMethodComposite method)
 {
-  MongooseHttpServerEndpoint *handler = new MongooseHttpServerEndpoint(this, method);
+  MongooseHttpServerEndpoint *handler = new MongooseHttpServerEndpoint(method);
+  if(handler) {
+    handler->attach(getConnection(), uri, method);
+    return handler;
+  }
 
-  mg_register_http_endpoint(nc, uri, endpointEventHandler, handler);
-
-  return handler;
+  return nullptr;
 }
 
 void MongooseHttpServer::onNotFound(MongooseHttpRequestHandler fn)
 {
-  defaultEndpoint.onRequest(fn);
+  onRequest(fn);
 }
 
-void MongooseHttpServer::defaultEventHandler(struct mg_connection *nc, int ev, void *p, void *u)
+
+void MongooseHttpServerEndpoint::onClose(mg_connection *nc)
 {
-  MongooseHttpServer *self = (MongooseHttpServer *)u;
-  //if (ev != MG_EV_POLL) { DBUGF("defaultEventHandler: nc = %p, self = %p", nc, self); }
-  self->eventHandler(nc, ev, p, HTTP_ANY, &(self->defaultEndpoint));
+  MongooseSocket::onClose(nc);
+  if(nc->user_connection_data) 
+  {
+    MongooseHttpServerRequest *request = (MongooseHttpServerRequest *)nc->user_connection_data;
+    delete request;
+  }
 }
 
-void MongooseHttpServer::endpointEventHandler(struct mg_connection *nc, int ev, void *p, void *u)
-{
-  MongooseHttpServerEndpoint *self = (MongooseHttpServerEndpoint *)u;
-  //if (ev != MG_EV_POLL) { DBUGF("endpointEventHandler: nc = %p,  self = %p,  self->server = %p", nc, self, self->server); }
-  self->server->eventHandler(nc, ev, p, self->method, self);
-}
 
-void MongooseHttpServer::eventHandler(struct mg_connection *nc, int ev, void *p, HttpRequestMethodComposite method, MongooseHttpServerEndpoint *endpoint)
+void MongooseHttpServerEndpoint::onPoll(mg_connection *nc)
 {
-  if (ev != MG_EV_POLL) { DBUGF("%s %p: %d", __PRETTY_FUNCTION__, nc, ev); }
-
-  switch (ev) {
-    case MG_EV_ACCEPT: {
-      char addr[32];
-      mg_sock_addr_to_str(&nc->sa, addr, sizeof(addr),
-                          MG_SOCK_STRINGIFY_IP | MG_SOCK_STRINGIFY_PORT);
-      DBUGF("Connection %p from %s", nc, addr);
-      break;
+  if(nc->user_connection_data)
+  {
+    MongooseHttpServerRequest *request = (MongooseHttpServerRequest *)nc->user_connection_data;
+    if(request->responseSent()) {
+      request->sendBody();
     }
+  }
+}
+
+
+void MongooseHttpServerEndpoint::onEvent(mg_connection *nc, int ev, void *p)
+{
+  switch (ev)
+  {
 #if MG_ENABLE_HTTP_STREAMING_MULTIPART
     case MG_EV_HTTP_MULTIPART_REQUEST:
 #endif
@@ -144,21 +132,21 @@ void MongooseHttpServer::eventHandler(struct mg_connection *nc, int ev, void *p,
       }
       MongooseHttpServerRequest *request = 
 #if MG_ENABLE_HTTP_STREAMING_MULTIPART
-        MG_EV_HTTP_MULTIPART_REQUEST == ev ? new MongooseHttpServerRequestUpload(this, nc, hm) :
+        MG_EV_HTTP_MULTIPART_REQUEST == ev ? new MongooseHttpServerRequestUpload(nc, hm) :
 #endif
 #if MG_ENABLE_HTTP_WEBSOCKET
-        MG_EV_WEBSOCKET_HANDSHAKE_REQUEST == ev ? new MongooseHttpWebSocketConnection(this, nc, hm) :
+        MG_EV_WEBSOCKET_HANDSHAKE_REQUEST == ev ? new MongooseHttpWebSocketConnection(nc, hm) :
 #endif
-                                             new MongooseHttpServerRequest(this, nc, hm);
+                                             new MongooseHttpServerRequest(nc, hm);
       if(request)
       {
         nc->user_connection_data = request;
 
-        if(endpoint->request) 
+        if(_request) 
         {
-          endpoint->request(request);
+          _request(request);
 #if MG_ENABLE_HTTP_WEBSOCKET
-        } else if(endpoint->wsFrame) {
+        } else if(_wsFrame) {
 
 #endif
         } else {
@@ -192,61 +180,21 @@ void MongooseHttpServer::eventHandler(struct mg_connection *nc, int ev, void *p,
     }
 #endif // MG_ENABLE_HTTP_STREAMING_MULTIPART
 
-    case MG_EV_POLL:
-    case MG_EV_SEND:
-    {
-      if(nc->user_connection_data)
-      {
-        MongooseHttpServerRequest *request = (MongooseHttpServerRequest *)nc->user_connection_data;
-        if(request->responseSent()) {
-          request->sendBody();
-        }
-      }
-
-      break;
-    }
-
-    case MG_EV_RECV:
-    {
-
-#ifdef ENABLE_DEBUG
-      int *num_bytes = (int *)p;
-#endif
-      DBUGF("Received %d bytes", *num_bytes);
-      break;
-    }
-
-    case MG_EV_CLOSE: {
-      DBUGF("Connection %p closed", nc);
-      if(nc->user_connection_data) 
-      {
-        MongooseHttpServerRequest *request = (MongooseHttpServerRequest *)nc->user_connection_data;
-
-        if(endpoint->close) {
-          endpoint->close(request);
-        }
-
-        delete request;
-        nc->user_connection_data = nullptr;
-      } 
-      break;
-    }
-
 #if MG_ENABLE_HTTP_WEBSOCKET
     case MG_EV_WEBSOCKET_HANDSHAKE_DONE: {
-      if(endpoint->wsConnect && nc->flags & MG_F_IS_MongooseHttpWebSocketConnection)
+      if(_wsConnect && nc->flags & MG_F_IS_MongooseHttpWebSocketConnection)
       {
         MongooseHttpWebSocketConnection *c = (MongooseHttpWebSocketConnection *)nc->user_connection_data;
-        endpoint->wsConnect(c);
+        _wsConnect(c);
       }
     } break;
 
     case MG_EV_WEBSOCKET_FRAME: {
-      if(endpoint->wsFrame && nc->flags & MG_F_IS_MongooseHttpWebSocketConnection)
+      if(_wsFrame && nc->flags & MG_F_IS_MongooseHttpWebSocketConnection)
       {
         MongooseHttpWebSocketConnection *c = (MongooseHttpWebSocketConnection *)nc->user_connection_data;
         struct websocket_message *wm = (struct websocket_message *)p;
-        endpoint->wsFrame(c, wm->flags, wm->data, wm->size);
+        _wsFrame(c, wm->flags, wm->data, wm->size);
       }
     } break;
 
@@ -275,7 +223,7 @@ void MongooseHttpServer::sendAll(MongooseHttpWebSocketConnection *from, const ch
       if(endpoint && !to->uri().equals(endpoint)) {
         continue;
       }
-      DBUGF("%.*s sending to %p", to->uri().length(), to->uri().c_str(), to);
+      DBUGF("%.*s sending to %p", (int)to->uri().length(), to->uri().c_str(), to);
       to->send(op, data, len);
     }
   }
@@ -284,8 +232,7 @@ void MongooseHttpServer::sendAll(MongooseHttpWebSocketConnection *from, const ch
 
 /// MongooseHttpServerRequest object
 
-MongooseHttpServerRequest::MongooseHttpServerRequest(MongooseHttpServer *server, mg_connection *nc, http_message *msg) :
-  _server(server),
+MongooseHttpServerRequest::MongooseHttpServerRequest(mg_connection *nc, http_message *msg) :
   _nc(nc),
 #if MG_COPY_HTTP_MESSAGE
   _msg(duplicateMessage(msg)),
@@ -310,6 +257,8 @@ MongooseHttpServerRequest::MongooseHttpServerRequest(MongooseHttpServer *server,
   } else if(0 == mg_vcasecmp(&msg->method, "OPTIONS")) {
     _method = HTTP_OPTIONS;
   }
+
+  nc->user_connection_data = this;
 }
 
 MongooseHttpServerRequest::~MongooseHttpServerRequest()
@@ -324,6 +273,8 @@ MongooseHttpServerRequest::~MongooseHttpServerRequest()
   delete _msg;
   _msg = nullptr;
 #endif
+
+  _nc->user_connection_data = nullptr;
 }
 
 #if MG_COPY_HTTP_MESSAGE
@@ -416,7 +367,7 @@ void MongooseHttpServerRequest::sendBody()
     if(free > 0) 
     {
       size_t sent = _response->sendBody(_nc, free);
-      DBUGF("Connection %p: sent %u/%u, %lx", _nc, sent, free, _nc->flags & MG_F_SEND_AND_CLOSE);
+      DBUGF("Connection %p: sent %zu/%zu, %lx", _nc, sent, free, _nc->flags & MG_F_SEND_AND_CLOSE);
 
       if(sent < free) {
         DBUGLN("Response finished");
@@ -770,8 +721,8 @@ size_t MongooseHttpServerResponseStream::sendBody(struct mg_connection *nc, size
 #endif
 
 #if MG_ENABLE_HTTP_WEBSOCKET
-MongooseHttpWebSocketConnection::MongooseHttpWebSocketConnection(MongooseHttpServer *server, mg_connection *nc, http_message *msg) :
-  MongooseHttpServerRequest(server, nc, msg)
+MongooseHttpWebSocketConnection::MongooseHttpWebSocketConnection(mg_connection *nc, http_message *msg) :
+  MongooseHttpServerRequest(nc, msg)
 {
   nc->flags |= MG_F_IS_MongooseHttpWebSocketConnection;
 }
