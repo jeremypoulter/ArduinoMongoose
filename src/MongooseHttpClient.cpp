@@ -87,7 +87,7 @@ void MongooseHttpClientRequest::onEvent(mg_connection *nc, int ev, void *p)
     {
       char addr[32];
       struct http_message *hm = (struct http_message *) p;
-      mg_sock_addr_to_str(&getConnection()->sa, addr, sizeof(addr),
+      mg_sock_addr_to_str(&(nc->sa), addr, sizeof(addr),
                           MG_SOCK_STRINGIFY_IP | MG_SOCK_STRINGIFY_PORT);
       DBUGF("HTTP %s from %s, body %zu @ %p",
         MG_EV_HTTP_REPLY == ev ? "reply" : "chunk",

@@ -174,7 +174,7 @@ bool MongooseSocket::bind(uint16_t port)
 }
 
 #if MG_ENABLE_SSL
-bool MongooseHttpServer::begin(uint16_t port, const char *cert, const char *private_key)
+bool MongooseSocket::bind(uint16_t port, const char *cert, const char *private_key)
 {
   struct mg_bind_opts bind_opts;
   const char *err;
