@@ -181,7 +181,7 @@ class MongooseHttpServerRequest
 
 class MongooseHttpServerRequestUpload : public MongooseHttpServerRequest
 {
-  friend MongooseHttpServer;
+  friend MongooseHttpServerEndpoint;
 
   private:
     uint64_t index;

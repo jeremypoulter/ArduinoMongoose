@@ -169,8 +169,8 @@ void MongooseHttpServerEndpoint::onEvent(mg_connection *nc, int ev, void *p)
         struct mg_http_multipart_part *mp = (struct mg_http_multipart_part *) p;
         MongooseHttpServerRequestUpload *request = (MongooseHttpServerRequestUpload *)nc->user_connection_data;
  
-        if(!request->_responseSent && endpoint->upload) {
-          mp->num_data_consumed = endpoint->upload(request, ev, MongooseString(mg_mk_str(mp->file_name)), 
+        if(!request->_responseSent && _upload) {
+          mp->num_data_consumed = _upload(request, ev, MongooseString(mg_mk_str(mp->file_name)), 
                                            request->index, (uint8_t*)mp->data.p, mp->data.len);
         }
 
