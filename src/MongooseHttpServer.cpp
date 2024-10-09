@@ -1,3 +1,4 @@
+/*
 #if defined(ENABLE_DEBUG) && !defined(ENABLE_DEBUG_MONGOOSE_HTTP_SERVER)
 #undef ENABLE_DEBUG
 #endif
@@ -215,7 +216,7 @@ void MongooseHttpServer::sendAll(MongooseHttpWebSocketConnection *from, const ch
   struct mg_connection *c;
   for (c = mg_next(mgr, nullptr); c != nullptr; c = mg_next(mgr, c)) {
     if (c == nc) { 
-      continue; /* Don't send to the sender. */
+      continue; // Don't send to the sender.
     }
     if (c->flags & MG_F_IS_WEBSOCKET && c->flags & MG_F_IS_MongooseHttpWebSocketConnection)
     {
@@ -738,3 +739,4 @@ void MongooseHttpWebSocketConnection::send(int op, const void *data, size_t len)
 }
 
 #endif
+*/

@@ -35,7 +35,7 @@ class MongooseCore
     void poll(int timeout_ms);
 
     struct mg_mgr *getMgr();
-    void getDefaultOpts(struct mg_connect_opts *opts, bool secure = false);
+//    void getDefaultOpts(struct mg_connect_opts *opts, bool secure = false);
 
     void ipConfigChanged();
 

@@ -26,7 +26,7 @@ MongooseCore::MongooseCore() :
 
 void MongooseCore::begin() 
 {
-  mg_mgr_init(&mgr, this);
+  mg_mgr_init(&mgr);
 
   ipConfigChanged();
 }
@@ -46,18 +46,18 @@ struct mg_mgr *MongooseCore::getMgr()
   return &mgr;
 }
 
-void MongooseCore::getDefaultOpts(struct mg_connect_opts *opts, bool secure)
-{
-  memset(opts, 0, sizeof(*opts));
-
-#if MG_ENABLE_SSL
-  if(secure) {
-    opts->ssl_ca_cert = _rootCaCallback();
-  }
-#else
-  (void)secure;
-#endif
-}
+//void MongooseCore::getDefaultOpts(struct mg_connect_opts *opts, bool secure)
+//{
+//  memset(opts, 0, sizeof(*opts));
+//
+//#if MG_ENABLE_SSL
+//  if(secure) {
+//    opts->ssl_ca_cert = _rootCaCallback();
+//  }
+//#else
+//  (void)secure;
+//#endif
+//}
 
 
 void MongooseCore::ipConfigChanged() 

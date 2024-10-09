@@ -27,10 +27,10 @@ bool MongooseHttpClient::get(const char *uri, MongooseHttpResponseHandler onResp
 {
   MongooseHttpClientRequest *request = beginRequest(uri);
   request->setMethod(HTTP_GET);
-  if(NULL != onResponse) {
+  if(nullptr != onResponse) {
     request->onResponse(onResponse);
   }
-  if(NULL != onClose) {
+  if(nullptr != onClose) {
     request->onClose(onClose);
   }
   return request->send();
@@ -42,10 +42,10 @@ bool MongooseHttpClient::post(const char* uri, const char *contentType, const ch
   request->setMethod(HTTP_POST);
   request->setContentType(contentType);
   request->setContent(body);
-  if(NULL != onResponse) {
+  if(nullptr != onResponse) {
     request->onResponse(onResponse);
   }
-  if(NULL != onClose) {
+  if(nullptr != onClose) {
     request->onClose(onClose);
   }
   return request->send();
@@ -58,14 +58,14 @@ MongooseHttpClientRequest *MongooseHttpClient::beginRequest(const char *uri)
 
 MongooseHttpClientRequest::MongooseHttpClientRequest(const char *uri) :
   MongooseSocket(),
-  _onResponse(NULL),
-  _onBody(NULL),
+  _onResponse(nullptr),
+  _onBody(nullptr),
   _uri(uri),
   _method(HTTP_GET),
   _contentType("application/x-www-form-urlencoded"),
   _contentLength(-1),
-  _body(NULL),
-  _extraHeaders(NULL)
+  _body(nullptr),
+  _extraHeaders(nullptr)
 {
 
 }
@@ -74,7 +74,7 @@ MongooseHttpClientRequest::~MongooseHttpClientRequest()
 {
   if (_extraHeaders) {
     free(_extraHeaders);
-    _extraHeaders = NULL;
+    _extraHeaders = nullptr;
   }
 }
 
@@ -82,33 +82,58 @@ void MongooseHttpClientRequest::onEvent(mg_connection *nc, int ev, void *p)
 {
   switch (ev)
   {
-    case MG_EV_HTTP_CHUNK:
-    case MG_EV_HTTP_REPLY:
+    case MG_EV_HTTP_MSG:
     {
       char addr[32];
-      struct http_message *hm = (struct http_message *) p;
-      mg_sock_addr_to_str(&(nc->sa), addr, sizeof(addr),
-                          MG_SOCK_STRINGIFY_IP | MG_SOCK_STRINGIFY_PORT);
-      DBUGF("HTTP %s from %s, body %zu @ %p",
-        MG_EV_HTTP_REPLY == ev ? "reply" : "chunk",
-        addr, hm->body.len, hm->body.p);
+      struct mg_http_message *hm = (struct mg_http_message *) p;
+      mg_snprintf(addr, sizeof(addr), "%M", mg_print_ip_port, &nc->rem);
+      DBUGF("HTTP message from %s, body %zu @ %p",
+        addr, hm->body.len, hm->body.buf);
 
       MongooseHttpClientResponse response(hm);
-      if(MG_EV_HTTP_CHUNK == ev)
-      {
-        if(_onBody) {
-          _onBody(&response);
-          setFlags(MG_F_DELETE_CHUNK);
-        }
-      } else {
-        if(_onResponse) {
-          _onResponse(&response);
-        }
-        abort();
+      if(_onResponse) {
+        _onResponse(&response);
       }
 
       break;
     }
+  }
+}
+
+void MongooseHttpClientRequest::onOpen(mg_connection *nc)
+{
+  _timeout_ms = mg_millis() + MOGOOSE_HTTP_CLIENT_TIMEOUT;
+}
+
+void MongooseHttpClientRequest::onPoll(mg_connection *nc)
+{
+  if (mg_millis() > _timeout_ms &&
+      (nc->is_connecting || nc->is_resolving)) {
+    mg_error(nc, "Connect timeout");
+  }
+}
+
+void MongooseHttpClientRequest::onConnect(mg_connection *nc)
+{
+  struct mg_str host = mg_url_host(_uri);
+
+  if (mg_url_is_ssl(_uri)) {
+    struct mg_tls_opts opts = {.ca = mg_unpacked("/certs/ca.pem"),
+                               .name = mg_url_host(_uri)};
+    mg_tls_init(nc, &opts);
+  }
+
+  // Send request
+  mg_printf(nc,
+            "%s %s HTTP/1.1\r\n"
+            "Host: %.*s\r\n"
+            "Content-Type: octet-stream\r\n"
+            "Content-Length: %d\r\n"
+            "\r\n",
+            _body ? "POST" : "GET", mg_url_uri(_uri), (int) host.len,
+            host.buf, _contentLength > 0 ? _contentLength : 0);
+  if(_body) {
+    mg_send(nc, _body, _contentLength);
   }
 }
 
@@ -120,18 +145,12 @@ void MongooseHttpClientRequest::onClose(mg_connection *nc)
 
 bool MongooseHttpClientRequest::send()
 {
-  struct mg_connect_opts opts;
-  Mongoose.getDefaultOpts(&opts);
-
-  const char *err;
-  opts.error_string = &err;
-
   if(MongooseSocket::connect(
-    mg_connect_http_opt(Mongoose.getMgr(), eventHandler, this, opts, _uri, _extraHeaders, (const char *)_body)))
+    mg_http_connect(Mongoose.getMgr(), _uri, MongooseSocket::eventHandler, this)))
   {
     return true;
   } else {
-    DBUGF("Failed to connect to %s: %s", _uri, err);
+    DBUGF("Failed to connect to %s", _uri);
   }
 
   return false;
@@ -165,7 +184,7 @@ bool MongooseHttpClientRequest::addHeader(const char *name, size_t nameLength, c
 
 size_t MongooseHttpClientResponse::contentLength() {
   MongooseString content_length = headers("Content-Length");
-  if(content_length != NULL) {
+  if(content_length != nullptr) {
     return atoll(content_length.c_str());
   }
   return _msg->body.len;

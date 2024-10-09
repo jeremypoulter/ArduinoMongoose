@@ -1,3 +1,4 @@
+/*
 #if defined(ENABLE_DEBUG) && !defined(ENABLE_DEBUG_MONGOOSE_MQTT_CLIENT)
 #undef ENABLE_DEBUG
 #endif
@@ -182,3 +183,4 @@ bool MongooseMqttClient::disconnect()
 
   return false;
 }
+*/

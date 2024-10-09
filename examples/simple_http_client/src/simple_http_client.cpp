@@ -164,18 +164,22 @@ void setup()
   // Based on https://github.com/typicode/jsonplaceholder#how-to
   client.get(PROTO"://jsonplaceholder.typicode.com/posts/1", [](MongooseHttpClientResponse *response) {
     printResponse(response);
+  }, []() {
+    LOGF("Connection closed\n");
     run--;
   });
   run++;
 
-  client.post(PROTO"://jsonplaceholder.typicode.com/posts", "application/json; charset=UTF-8",
-    "{\"title\":\"foo\",\"body\":\"bar\",\"userId\":1}",
-    [](MongooseHttpClientResponse *response)
-  {
-    printResponse(response);
-    run--;
-  });
-  run++;
+//  client.post(PROTO"://jsonplaceholder.typicode.com/posts", "application/json; charset=UTF-8",
+//    "{\"title\":\"foo\",\"body\":\"bar\",\"userId\":1}",
+//    [](MongooseHttpClientResponse *response)
+//  {
+//    printResponse(response);
+//  }, []() {
+//    LOGF("Connection closed\n");
+//    run--;
+//  });
+//  run++;
 
 //  client.put(PROTO"://jsonplaceholder.typicode.com/posts/1", "application/json; charset=UTF-8",
 //    "{\"id\":1,\"title\":\"foo\",\"body\":\"bar\",\"userId\":1}",
