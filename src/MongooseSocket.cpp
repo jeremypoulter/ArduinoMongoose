@@ -60,6 +60,13 @@ void MongooseSocket::processEvent(mg_connection *nc, int ev, void *p)
       break;
     }
 
+    case MG_EV_RESOLVE:
+    {
+      DBUGF("MG_EV_RESOLVE");
+      onResolve(nc);
+      break;
+    }
+
     case MG_EV_CONNECT:
     {
       DBUGF("MG_EV_CONNECT");
@@ -119,6 +126,11 @@ void MongooseSocket::processEvent(mg_connection *nc, int ev, void *p)
 void MongooseSocket::onOpen(mg_connection *nc)
 {
   DBUGF("Connection open");
+}
+
+void MongooseSocket::onResolve(mg_connection *nc)
+{
+  DBUGF("Resolved address");
 }
 
 void MongooseSocket::onConnect(mg_connection *nc)

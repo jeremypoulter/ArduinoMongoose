@@ -25,21 +25,28 @@ MongooseSntpClient::~MongooseSntpClient()
 
 }
 
+void MongooseSntpClient::onResolve(mg_connection *nc)
+{
+  DBUGF("Got address, sending request");
+  mg_sntp_request(nc);
+}
 
 void MongooseSntpClient::onEvent(mg_connection *nc, int ev, void *p)
 {
-  struct mg_sntp_message *msg = (struct mg_sntp_message *) p;
   switch (ev) 
   {
-    case MG_SNTP_REPLY:
-      if(_onTime) {
-        _onTime(msg->tv);
+    case MG_EV_SNTP_TIME:
+    {
+      if(_onTime) 
+      {
+        uint64_t time_ms = *((uint64_t *)p);
+        struct timeval time;
+        time.tv_sec = time_ms / 1000;
+        time.tv_usec = (time_ms % 1000) * 1000;
+        _onTime(time);
       }
       break;
-
-    case MG_SNTP_FAILED:
-      onError(nc, -1);
-      break;
+    }
   }
 }
 
@@ -50,8 +57,11 @@ bool MongooseSntpClient::getTime(const char *server, MongooseSntpTimeHandler onT
     DBUGF("Trying to connect to %s", server);
     _onTime = onTime;
 
+    char url[128];
+    snprintf(url, sizeof(url), "udp://%s:123", server);
+
     if(MongooseSocket::connect(
-      mg_sntp_get_time(Mongoose.getMgr(), eventHandler, server, this))) 
+      mg_sntp_connect(Mongoose.getMgr(), url, eventHandler , this))) 
     {
       return true;
     }

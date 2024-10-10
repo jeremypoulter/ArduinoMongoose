@@ -24,6 +24,7 @@ class MongooseSntpClient : public MongooseSocket
     MongooseSntpTimeHandler _onTime;
 
   protected:
+    void onResolve(mg_connection *nc);
     void onEvent(mg_connection *nc, int ev, void *p);
 
   public:

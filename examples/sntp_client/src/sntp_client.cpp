@@ -102,8 +102,8 @@ void setup()
 
   Mongoose.begin();
 
-  sntp.onError([](uint8_t err) {
-    DBUGF("Got error %u", err);
+  sntp.onError([](const char *error) {
+    DBUGF("Got error %s", error);
     fetching_time = false;
     next_time = millis() + 10 * 1000;
   });

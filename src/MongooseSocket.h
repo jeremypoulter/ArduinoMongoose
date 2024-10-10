@@ -25,6 +25,7 @@ class MongooseSocket
     static void eventHandler(struct mg_connection *nc, int ev, void *p);
 
     virtual void onOpen(mg_connection *nc);
+    virtual void onResolve(mg_connection *nc);
     virtual void onConnect(mg_connection *nc);
     virtual void onAccept(mg_connection *nc);
     virtual void onError(mg_connection *nc, const char *error);
