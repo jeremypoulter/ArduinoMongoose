@@ -62,7 +62,7 @@ MongooseHttpClientRequest::MongooseHttpClientRequest(const char *uri) :
   _onBody(nullptr),
   _uri(uri),
   _method(HTTP_GET),
-  _contentType("application/x-www-form-urlencoded"),
+  _contentType(nullptr),
   _contentLength(-1),
   _body(nullptr),
   _extraHeaders(nullptr)
@@ -127,11 +127,16 @@ void MongooseHttpClientRequest::onConnect(mg_connection *nc)
   mg_printf(nc,
             "%s %s HTTP/1.1\r\n"
             "Host: %.*s\r\n"
-            "Content-Type: octet-stream\r\n"
-            "Content-Length: %d\r\n"
+            "Content-Length: %lld\r\n"
+            "%s%s%s"
+            "%s"
             "\r\n",
             _body ? "POST" : "GET", mg_url_uri(_uri), (int) host.len,
-            host.buf, _contentLength > 0 ? _contentLength : 0);
+            host.buf, _contentLength > 0 ? _contentLength : 0,
+            _contentType ? "Content-Type: " : "", 
+            _contentType ? _contentType : "",
+            _contentType ? "\r\n" : "",
+            _extraHeaders ? _extraHeaders : "");
   if(_body) {
     mg_send(nc, _body, _contentLength);
   }
