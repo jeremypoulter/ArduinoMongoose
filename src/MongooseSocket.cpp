@@ -136,6 +136,12 @@ void MongooseSocket::onResolve(mg_connection *nc)
 void MongooseSocket::onConnect(mg_connection *nc)
 {
   DBUGF("Successfully Connected");
+
+// if (mg_url_is_ssl(s_url)) {
+//   struct mg_tls_opts opts = {.ca = mg_unpacked("/certs/ca.pem"),
+//                               .name = mg_url_host(s_url)};
+//   mg_tls_init(c, &opts);
+// }
 }
 
 void MongooseSocket::onPoll(mg_connection *nc)

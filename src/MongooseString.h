@@ -8,7 +8,7 @@
 #include "mongoose.h"
 
 #define MG_NULL_STR \
-  { NULL, 0 }
+  { nullptr, 0 }
 
 class MongooseString
 {
@@ -38,7 +38,7 @@ class MongooseString
       _string(string) {
     }
     MongooseString(const char *string) :
-      _string(mg_str(string)) {
+      _string(mg_str_s(string)) {
     }
     MongooseString(const char *string, size_t len) :
       _string(mg_str_n(string, len)) {
@@ -51,15 +51,18 @@ class MongooseString
     }
 #endif
 
-//    operator mg_str ()
-//    {
-//      return _string;
-//    }
-//
-//    operator mg_str *()
-//    {
-//      return &_string;
-//    }
+// The 'fix' in mongoose.h for mg_str breaks this
+#undef mg_str
+    operator struct mg_str ()
+    {
+      return _string;
+    }
+
+    operator struct mg_str *()
+    {
+      return &_string;
+    }
+#define mg_str(s) mg_str_s(s)
 
     operator const char *() const
     {
@@ -71,7 +74,7 @@ class MongooseString
     // http://www.artima.com/cppsource/safebool.html
     operator StringIfHelperType() const
     {
-      return NULL != _string.buf ? &MongooseString::StringIfHelper : 0;
+      return nullptr != _string.buf ? &MongooseString::StringIfHelper : 0;
     }
     
 #ifdef ARDUINO
@@ -82,7 +85,7 @@ class MongooseString
 #endif
 
     MongooseString & operator = (const char *cstr) {
-      _string = mg_str(cstr);
+      _string = mg_str_s(cstr);
       return *this;
     }
     MongooseString & operator = (const mg_str *rhs) {
@@ -118,7 +121,7 @@ class MongooseString
       return mg_strcmp(_string, str._string);
     }
     int compareTo(const char *str) const {
-      mg_str mgStr = mg_str(str);
+      mg_str mgStr = mg_str_s(str);
       return mg_strcmp(_string, mgStr);
     }
 
@@ -140,7 +143,7 @@ class MongooseString
       return compareToIgnoreCase(str._string);
     }
     int compareToIgnoreCase(const char *str) const {
-      mg_str mgStr = mg_str(str);
+      mg_str mgStr = mg_str_s(str);
       return compareToIgnoreCase(mgStr);
     }
 

@@ -127,19 +127,21 @@ void setup()
 #endif
 
   snprintf(clientId, sizeof(clientId), "mg-%" PRIx64, deviceId);
-  client.onMessage([](MongooseString topic, MongooseString payload) {
+  client.onMessage([](MongooseString topic, MongooseString payload)
+  {
     DBUGF("%.*s: %.*s", (int)topic.length(), (const char *)topic, (int)payload.length(), (const char *)payload);
-    client.publish("/test", payload);
+    client.publish("am/echo", payload);
   });
-  client.onError([](uint8_t err) {
-    DBUGF("Got error %u", err);
+  client.onError([](const char *err) {
+    DBUGF("Got error %s", err);
   });
 
   DBUGF("Trying to connect to %s", mqtt_host);
   client.connect(mqtt_protocol, mqtt_host, clientId, []()
   {
-    DBUGF("Connected, subscribing to /stuff");
-    client.subscribe("/stuff");
+    DBUGF("Connected, subscribing to am/+");
+    client.subscribe("am/clock");
+    client.subscribe("am/test/+");
   });
 }
 
@@ -153,7 +155,7 @@ void loop()
   {
     char time[16];
     snprintf(time, sizeof(time), "%lu", now);
-    client.publish("/clock", time);
+    client.publish("am/clock", time);
     next_time += 1000;
     DBUGVAR(next_time);
   }
