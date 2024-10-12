@@ -136,6 +136,8 @@ void setup()
     DBUGF("Got error %s", err);
   });
 
+  client.setLastWillAndTestimment("am/lastwill", "I'm gone", true);
+
   DBUGF("Trying to connect to %s", mqtt_host);
   client.connect(mqtt_protocol, mqtt_host, clientId, []()
   {
