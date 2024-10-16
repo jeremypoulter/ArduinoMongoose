@@ -395,10 +395,7 @@ class MongooseHttpServer : public MongooseHttpServerEndpoint
     ~MongooseHttpServer();
 
     bool begin(uint16_t port);
-
-#if MG_ENABLE_SSL
     bool begin(uint16_t port, const char *cert, const char *private_key);
-#endif
 
     MongooseHttpServerEndpoint *on(const char* uri);
     MongooseHttpServerEndpoint *on(const char* uri, HttpRequestMethodComposite method);

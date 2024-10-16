@@ -16,13 +16,10 @@ MongooseMqttClient::MongooseMqttClient() :
   _client_id(),
   _username(),
   _password(),
-  _cert(nullptr),
-  _key(nullptr),
   _will_topic(),
   _will_message(),
   _will_retain(false),
   _connected(false),
-  _reject_unauthorized(true),
   _onConnect(nullptr),
   _onMessage(nullptr)
 {
@@ -81,30 +78,6 @@ void MongooseMqttClient::onEvent(mg_connection *nc, int ev, void *p)
   }
 }
 
-void MongooseMqttClient::onConnect(mg_connection *nc)
-{
-  DBUGF("MQTT connected");
-//#if MG_ENABLE_SSL
-//    if(MQTT_MQTTS == protocol || MQTT_WSS == protocol) {
-//      secure = true;
-//    }
-//#endif
-
-//    Mongoose.getDefaultOpts(&opts, secure);
-//#if MG_ENABLE_SSL
-//    if(secure)
-//    {
-//      if(!_reject_unauthorized) {
-//        opts.ssl_ca_cert = "*";
-//      }
-//      if(_cert && _key) {
-//        opts.ssl_cert = _cert;
-//        opts.ssl_key = _key;
-//      }
-//    }
-//#endif
-}
-
 bool MongooseMqttClient::connect(MongooseMqttProtocol protocol, const char *server, const char *client_id, MongooseMqttConnectionHandler onConnect)
 {
   if(nullptr == getConnection()) 
@@ -125,6 +98,11 @@ bool MongooseMqttClient::connect(MongooseMqttProtocol protocol, const char *serv
     DBUGF("Trying to connect to %s", server);
     _onConnect = onConnect;
     _client_id = client_id;
+
+    if(MQTT_MQTTS == protocol) {
+      setSecure(server);
+    }
+
     if(MongooseSocket::connect(
       mg_mqtt_connect(Mongoose.getMgr(), url, &opts, eventHandler, this)))
     {

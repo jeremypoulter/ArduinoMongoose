@@ -1,22 +1,3 @@
-//
-// A simple server implementation showing how to:
-//  * serve static messages
-//  * read GET and POST parameters
-//  * handle missing pages / 404s
-//
-
-#include <MongooseCore.h>
-#include <MongooseHttpClient.h>
-
-MongooseHttpClient client;
-
-bool run = true;
-bool headers_shown = false;
-
-bool s_show_headers = false;
-const char *s_url = "https://www.google.com";
-//const char *s_url = "https://github-releases.githubusercontent.com/202533650/85e078fb-8a10-4dd8-a80c-40c7d86ac2e8?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=AKIAIWNJYAX4CSVEH53A%2F20211024%2Fus-east-1%2Fs3%2Faws4_request&amp;X-Amz-Date=20211024T222333Z&amp;X-Amz-Expires=300&amp;X-Amz-Signature=f8a0a2ae38cdc92a919b3235cb3dfa9088fe883dd4efb99e2a02fd3b50776429&amp;X-Amz-SignedHeaders=host&amp;actor_id=0&amp;key_id=0&amp;repo_id=202533650&amp;response-content-disposition=attachment%3B%20filename%3Dopenevse_wifi_v1.bin.zip&amp;response-content-type=application%2Foctet-stream";
-
 // Root CA bundle
 const char *root_ca =
 // Amazon Root CA 1, example of multiple Root CAs
@@ -73,64 +54,27 @@ const char *root_ca =
 "Nr4TDea9Y355e6cJDUCrat2PisP29owaQgVR1EX1n6diIWgVIEM8med8vSTYqZEX\r\n"
 "c4g/VhsxOBi0cQ+azcgOno4uG+GMmIPLHzHxREzGBHNJdmAPx/i9F4BrLunMTA5a\r\n"
 "mnkPIAou1Z5jJh5VkpTYghdae9C8x49OhgQ=\r\n"
+"-----END CERTIFICATE-----\r\n"
+// DigiCert Global Root G2, needed for test-tls12.messagemedia.com
+"-----BEGIN CERTIFICATE-----\r\n"
+"MIIDjjCCAnagAwIBAgIQAzrx5qcRqaC7KGSxHQn65TANBgkqhkiG9w0BAQsFADBh\r\n"
+"MQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3\r\n"
+"d3cuZGlnaWNlcnQuY29tMSAwHgYDVQQDExdEaWdpQ2VydCBHbG9iYWwgUm9vdCBH\r\n"
+"MjAeFw0xMzA4MDExMjAwMDBaFw0zODAxMTUxMjAwMDBaMGExCzAJBgNVBAYTAlVT\r\n"
+"MRUwEwYDVQQKEwxEaWdpQ2VydCBJbmMxGTAXBgNVBAsTEHd3dy5kaWdpY2VydC5j\r\n"
+"b20xIDAeBgNVBAMTF0RpZ2lDZXJ0IEdsb2JhbCBSb290IEcyMIIBIjANBgkqhkiG\r\n"
+"9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuzfNNNx7a8myaJCtSnX/RrohCgiN9RlUyfuI\r\n"
+"2/Ou8jqJkTx65qsGGmvPrC3oXgkkRLpimn7Wo6h+4FR1IAWsULecYxpsMNzaHxmx\r\n"
+"1x7e/dfgy5SDN67sH0NO3Xss0r0upS/kqbitOtSZpLYl6ZtrAGCSYP9PIUkY92eQ\r\n"
+"q2EGnI/yuum06ZIya7XzV+hdG82MHauVBJVJ8zUtluNJbd134/tJS7SsVQepj5Wz\r\n"
+"tCO7TG1F8PapspUwtP1MVYwnSlcUfIKdzXOS0xZKBgyMUNGPHgm+F6HmIcr9g+UQ\r\n"
+"vIOlCsRnKPZzFBQ9RnbDhxSJITRNrw9FDKZJobq7nMWxM4MphQIDAQABo0IwQDAP\r\n"
+"BgNVHRMBAf8EBTADAQH/MA4GA1UdDwEB/wQEAwIBhjAdBgNVHQ4EFgQUTiJUIBiV\r\n"
+"5uNu5g/6+rkS7QYXjzkwDQYJKoZIhvcNAQELBQADggEBAGBnKJRvDkhj6zHd6mcY\r\n"
+"1Yl9PMWLSn/pvtsrF9+wX3N3KjITOYFnQoQj8kVnNeyIv/iPsGEMNKSuIEyExtv4\r\n"
+"NeF22d+mQrvHRAiGfzZ0JFrabA0UWTW98kndth/Jsw1HKj2ZL7tcu7XUIOGZX1NG\r\n"
+"Fdtom/DzMNU+MeKNhJ7jitralj41E6Vf8PlwUHBHQRFXGU7Aj64GxJUTFy8bJZ91\r\n"
+"8rGOmaFvE7FBcf6IKshPECBV1/MUReXgRPTqh5Uykw7+U0b6LJ3/iyK5S9kJRaTe\r\n"
+"pLiaWN0bfVKfjllDiIGknibVb63dDcY3fe0Dkhvld1927jyNxF1WW6LZZm6zNTfl\r\n"
+"MrY=\r\n"
 "-----END CERTIFICATE-----\r\n";
-
-void printHeaders(MongooseHttpClientResponse *response)
-{
-  headers_shown = true;
-
-  printf("%d %.*s\n", response->respCode(), (int)response->respStatusMsg().length(), (const char *)response->respStatusMsg());
-  int headers = response->headers();
-  int i;
-  for(i=0; i<headers; i++) {
-    printf("%.*s: %.*s\n", 
-      (int)response->headerNames(i).length(), (const char *)response->headerNames(i), 
-      (int)response->headerValues(i).length(), (const char *)response->headerValues(i));
-  }
-  printf("\n");
-}
-
-int main(int argc, char *argv[])
-{
-  int i;
-  // Process command line arguments
-  for (i = 1; i < argc; i++) {
-    if (strcmp(argv[i], "--show-headers") == 0) {
-      s_show_headers = true;
-    } else {
-      break;
-    }
-  }
-
-//  if (i + 1 != argc) {
-//    fprintf(stderr, "Usage: %s [--show-headers] <URL>\n", argv[0]);
-//    exit(EXIT_FAILURE);
-//  }
-  if(i+1 == argc) {
-    s_url = argv[i];
-  }
-
-  Mongoose.begin();
-  Mongoose.setRootCa(root_ca);
-
-  // Based on https://github.com/typicode/jsonplaceholder#how-to
-  client.beginRequest(s_url)->
-    onBody([](MongooseHttpClientResponse *response) {
-      if(s_show_headers && false == headers_shown) {
-        printHeaders(response);
-      }
-      if (response->body().length() > 0) {
-        fwrite(response->body().c_str(), response->body().length(), 1, stdout);
-        fflush(stdout);
-      }
-    })->
-    onClose([]() {
-      run = false;
-    })->send();
-
-  while(run) {
-    Mongoose.poll(1000);
-  }
-
-  return 0;
-}

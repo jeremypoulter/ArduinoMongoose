@@ -39,7 +39,6 @@ bool MongooseHttpServer::begin(uint16_t port)
   return false;
 }
 
-#if MG_ENABLE_SSL
 bool MongooseHttpServer::begin(uint16_t port, const char *cert, const char *private_key)
 {
   if(bind(port, cert, private_key))
@@ -52,7 +51,6 @@ bool MongooseHttpServer::begin(uint16_t port, const char *cert, const char *priv
 
   return false;
 }
-#endif
 
 MongooseHttpServerEndpoint *MongooseHttpServer::on(const char* uri)
 {

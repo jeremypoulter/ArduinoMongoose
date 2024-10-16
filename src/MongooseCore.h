@@ -19,10 +19,8 @@ typedef std::function<const char *(void)> ArduinoMongooseGetRootCaCallback;
 class MongooseCore
 {
   private:
-#if MG_ENABLE_SSL
     const char *_rootCa;
     ArduinoMongooseGetRootCaCallback _rootCaCallback;
-#endif
 #ifdef ARDUINO
     String _nameserver;
 #endif // ARDUINO
@@ -39,7 +37,10 @@ class MongooseCore
 
     void ipConfigChanged();
 
-#if MG_ENABLE_SSL
+    mg_str getRootCa() {
+      return mg_str_s(_rootCaCallback());
+    }
+
     void setRootCa(const char *rootCa) {
       _rootCa = rootCa;
     }
@@ -47,8 +48,6 @@ class MongooseCore
     void setRootCaCallback(ArduinoMongooseGetRootCaCallback callback) {
       _rootCaCallback = callback;
     }
-#endif
-
 };
 
 extern MongooseCore Mongoose;

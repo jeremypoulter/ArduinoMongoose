@@ -24,7 +24,12 @@ MongooseSocket::MongooseSocket() :
 MongooseSocket::MongooseSocket(mg_connection *nc) :
   _nc(nc),
   _onError(nullptr),
-  _onClose(nullptr)
+  _onClose(nullptr),
+  _secure(false),
+  _reject_unauthorized(true),
+  _host(),
+  _cert(),
+  _key()
 {
 
 }
@@ -137,11 +142,18 @@ void MongooseSocket::onConnect(mg_connection *nc)
 {
   DBUGF("Successfully Connected");
 
-// if (mg_url_is_ssl(s_url)) {
-//   struct mg_tls_opts opts = {.ca = mg_unpacked("/certs/ca.pem"),
-//                               .name = mg_url_host(s_url)};
-//   mg_tls_init(c, &opts);
-// }
+  if (_secure)
+  {
+    struct mg_tls_opts opts = {
+      .ca = Mongoose.getRootCa(),
+      .cert = _cert,
+      .key = _key,
+      .name = _host,
+      .skip_verification = _reject_unauthorized ? 0 : 1
+    };
+
+    mg_tls_init(nc, &opts);
+  }
 }
 
 void MongooseSocket::onPoll(mg_connection *nc)
@@ -203,7 +215,6 @@ bool MongooseSocket::connect(mg_connection *nc)
 //  return bind(port, bind_opts);
 //}
 //
-//#if MG_ENABLE_SSL
 //bool MongooseSocket::bind(uint16_t port, const char *cert, const char *private_key)
 //{
 //  struct mg_bind_opts bind_opts;
@@ -216,7 +227,6 @@ bool MongooseSocket::connect(mg_connection *nc)
 //
 //  return bind(port, bind_opts);
 //}
-//#endif
 //
 //bool MongooseSocket::bind(uint16_t port, mg_bind_opts opts)
 //{

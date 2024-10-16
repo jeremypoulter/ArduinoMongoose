@@ -115,14 +115,9 @@ void MongooseHttpClientRequest::onPoll(mg_connection *nc)
 
 void MongooseHttpClientRequest::onConnect(mg_connection *nc)
 {
+  MongooseSocket::onConnect(nc);
+
   struct mg_str host = mg_url_host(_uri);
-
-  if (mg_url_is_ssl(_uri)) {
-    struct mg_tls_opts opts = {.ca = mg_unpacked("/certs/ca.pem"),
-                               .name = mg_url_host(_uri)};
-    mg_tls_init(nc, &opts);
-  }
-
   // Send request
   mg_printf(nc,
             "%s %s HTTP/1.1\r\n"
@@ -150,6 +145,10 @@ void MongooseHttpClientRequest::onClose(mg_connection *nc)
 
 bool MongooseHttpClientRequest::send()
 {
+  if(mg_url_is_ssl(_uri)) {
+    setSecure(mg_url_host(_uri));
+  }
+
   if(MongooseSocket::connect(
     mg_http_connect(Mongoose.getMgr(), _uri, MongooseSocket::eventHandler, this)))
   {

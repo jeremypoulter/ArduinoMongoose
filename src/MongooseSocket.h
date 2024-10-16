@@ -7,6 +7,8 @@
 
 #include <mongoose.h>
 
+#include <MongooseString.h>
+
 #include <functional>
 
 typedef std::function<void(const char *error)> MongooseSocketErrorHandler;
@@ -19,6 +21,12 @@ class MongooseSocket
 
     MongooseSocketErrorHandler _onError;
     MongooseSocketCloseHandler _onClose;
+
+    bool _secure;
+    bool _reject_unauthorized;
+    MongooseString _host;
+    MongooseString _cert;
+    MongooseString _key;
 
     void processEvent(struct mg_connection *nc, int ev, void *p);
   protected:
@@ -37,19 +45,34 @@ class MongooseSocket
 
     bool connect(mg_connection *nc);
 //    bool bind(uint16_t port);
-//#if MG_ENABLE_SSL
 //    bool bind(uint16_t port, const char *cert, const char *private_key);
-//#endif
 //    bool bind(uint16_t port, mg_bind_opts opts);
+
+    void setSecure() {
+      _secure = true;
+    }
+
+    void setSecure(const char *host) {
+      setSecure(mg_str_s(host));
+    }
+    void setSecure(mg_str host) {
+      _secure = true;
+      _host = host;
+    }
+
+    void setCertificate(const char *cert, const char *key) {
+      _secure = true;
+      _cert = mg_str_s(cert);
+      _key = mg_str_s(key);
+    }
+
+    void setRejectUnauthorized(bool reject) {
+      _reject_unauthorized = reject;
+    }
 
     mg_connection *getConnection() {
       return _nc;
     }
-
-//    void setFlags (unsigned long mask, unsigned long flags);
-//    void setFlags(unsigned long flags) {
-//      setFlags(flags, flags);
-//    }
     void disconnect() {
       _nc->is_draining = 1;
     }

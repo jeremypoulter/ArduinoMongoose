@@ -13,10 +13,8 @@
 #endif // ARDUINO
 
 MongooseCore::MongooseCore() : 
-#if MG_ENABLE_SSL
   _rootCa(ARDUINO_MONGOOSE_DEFAULT_ROOT_CA),
   _rootCaCallback([this]() -> const char * { return _rootCa; }),
-#endif
 #ifdef ARDUINO
   _nameserver(""),
 #endif
@@ -45,20 +43,6 @@ struct mg_mgr *MongooseCore::getMgr()
 {
   return &mgr;
 }
-
-//void MongooseCore::getDefaultOpts(struct mg_connect_opts *opts, bool secure)
-//{
-//  memset(opts, 0, sizeof(*opts));
-//
-//#if MG_ENABLE_SSL
-//  if(secure) {
-//    opts->ssl_ca_cert = _rootCaCallback();
-//  }
-//#else
-//  (void)secure;
-//#endif
-//}
-
 
 void MongooseCore::ipConfigChanged() 
 {

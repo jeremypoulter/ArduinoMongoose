@@ -29,19 +29,15 @@ class MongooseMqttClient : public MongooseSocket
     MongooseString _client_id;
     MongooseString _username;
     MongooseString _password;
-    const char *_cert;
-    const char *_key;
     MongooseString _will_topic;
     MongooseString _will_message;
     bool _will_retain;
     bool _connected;
-    bool _reject_unauthorized; 
 
     MongooseMqttConnectionHandler _onConnect;
     MongooseMqttMessageHandler _onMessage;
 
   protected:
-    void onConnect(mg_connection *nc);
     void onClose(mg_connection *nc);
     void onEvent(mg_connection *nc, int ev, void *p);
 
@@ -59,19 +55,10 @@ class MongooseMqttClient : public MongooseSocket
       _password = password;
     }
 
-    void setCertificate(const char *cert, const char *key) {
-      _cert = cert;
-      _key = key;
-    }
-
     void setLastWillAndTestimment(const char *topic, const char *message, bool retain = false) {
       _will_topic = topic;
       _will_message = message;
       _will_retain = retain;
-    }
-
-    void setRejectUnauthorized(bool reject) {
-      _reject_unauthorized = reject;
     }
 
 #ifdef ARDUINO

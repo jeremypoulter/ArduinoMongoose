@@ -22,7 +22,7 @@
 #endif
 #include <string>
 
-#if MG_ENABLE_SSL
+#if MG_TLS != MG_TLS_NONE
 // SHA-1 hash, not supported
 #define MQTT_HOST "test.mosquitto.org:8883"
 #define MQTT_PROTOCOL MQTT_MQTTS
@@ -50,7 +50,6 @@ const char *password = "password";
 MongooseMqttProtocol mqtt_protocol = MQTT_PROTOCOL;
 const char *mqtt_host = MQTT_HOST;
 
-#if MG_ENABLE_SSL
 // Root CA bundle
 const char *root_ca =
 // test.mosquitto.org Root CAs
@@ -72,7 +71,6 @@ const char *root_ca =
 "REyPOFdGdhBY2P1FNRy0MDr6xr+D2ZOwxs63dG1nnAnWZg7qwoLgpZ4fESPD3PkA\r\n"
 "1ZgKJc2zbSQ9fCPxt2W3mdVav66c6fsb7els2W2Iz7gERJSX\r\n"
 "-----END CERTIFICATE-----\r\n";
-#endif
 
 #ifndef ARDUINO
 struct timespec millis_start_timestamp;
@@ -121,10 +119,7 @@ void setup()
 #endif // ARDUINO
 
   Mongoose.begin();
-
-#if MG_ENABLE_SSL
   Mongoose.setRootCa(root_ca);
-#endif
 
   snprintf(clientId, sizeof(clientId), "mg-%" PRIx64, deviceId);
   client.onMessage([](MongooseString topic, MongooseString payload)
@@ -189,13 +184,11 @@ int main(int argc, char *argv[])
       mqtt_protocol = MQTT_MQTT;
       mqtt_host = argv[i] + 6;
     }
-#if MG_ENABLE_SSL
     else if(0 == strncmp(argv[i], "mqtts://", 7))
     {
       mqtt_protocol = MQTT_MQTTS;
       mqtt_host = argv[i] + 7;
     }
-#endif
     else
     {
       usage(argv[0]);
