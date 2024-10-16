@@ -51,6 +51,21 @@ bool MongooseHttpClient::post(const char* uri, const char *contentType, const ch
   return request->send();
 }
 
+bool MongooseHttpClient::put(const char* uri, const char *contentType, const char *body, MongooseHttpResponseHandler onResponse, MongooseSocketCloseHandler onClose)
+{
+  MongooseHttpClientRequest *request = beginRequest(uri);
+  request->setMethod(HTTP_PUT);
+  request->setContentType(contentType);
+  request->setContent(body);
+  if(nullptr != onResponse) {
+    request->onResponse(onResponse);
+  }
+  if(nullptr != onClose) {
+    request->onClose(onClose);
+  }
+  return request->send();
+}
+
 MongooseHttpClientRequest *MongooseHttpClient::beginRequest(const char *uri)
 {
   return new MongooseHttpClientRequest(uri);
@@ -126,7 +141,13 @@ void MongooseHttpClientRequest::onConnect(mg_connection *nc)
             "%s%s%s"
             "%s"
             "\r\n",
-            _body ? "POST" : "GET", mg_url_uri(_uri), (int) host.len,
+            HTTP_POST == _method ? "POST" : 
+            HTTP_DELETE == _method ? "DELETE" : 
+            HTTP_PUT == _method ? "PUT" : 
+            HTTP_PATCH == _method ? "PATCH" : 
+            HTTP_HEAD == _method ? "HEAD" : 
+            HTTP_OPTIONS == _method ? "OPTIONS" : "GET", 
+            mg_url_uri(_uri), (int) host.len,
             host.buf, _contentLength > 0 ? _contentLength : 0,
             _contentType ? "Content-Type: " : "", 
             _contentType ? _contentType : "",

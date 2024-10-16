@@ -108,12 +108,10 @@ void setup()
     "{\"title\":\"foo\",\"body\":\"bar\",\"userId\":1}",
     printResponse, connectionClosed);
 
-//  client.put(PROTO"://jsonplaceholder.typicode.com/posts/1", "application/json; charset=UTF-8",
-//    "{\"id\":1,\"title\":\"foo\",\"body\":\"bar\",\"userId\":1}",
-//    [](MongooseHttpClientResponse *response)
-//  {
-//    printResponse(response);
-//  });
+  run++;
+  client.put(PROTO"://jsonplaceholder.typicode.com/posts/1", "application/json; charset=UTF-8",
+    "{\"id\":1,\"title\":\"foo\",\"body\":\"bar\",\"userId\":1}",
+    printResponse, connectionClosed);
 
 //  client.patch(PROTO"://jsonplaceholder.typicode.com/posts/1", "application/json; charset=UTF-8",
 //    "{\"title\":\"foo\"}",
