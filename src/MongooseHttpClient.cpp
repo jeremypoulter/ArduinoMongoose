@@ -137,6 +137,7 @@ void MongooseHttpClientRequest::onConnect(mg_connection *nc)
   mg_printf(nc,
             "%s %s HTTP/1.1\r\n"
             "Host: %.*s\r\n"
+            "Connection: close\r\n"
             "Content-Length: %lld\r\n"
             "%s%s%s"
             "%s"
