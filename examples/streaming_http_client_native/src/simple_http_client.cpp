@@ -14,10 +14,9 @@ bool run = true;
 bool headers_shown = false;
 
 bool s_show_headers = false;
-//const char *s_url = "https://www.google.com";
-const char *s_url = "https://github-releases.githubusercontent.com/202533650/85e078fb-8a10-4dd8-a80c-40c7d86ac2e8?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=AKIAIWNJYAX4CSVEH53A%2F20211024%2Fus-east-1%2Fs3%2Faws4_request&amp;X-Amz-Date=20211024T222333Z&amp;X-Amz-Expires=300&amp;X-Amz-Signature=f8a0a2ae38cdc92a919b3235cb3dfa9088fe883dd4efb99e2a02fd3b50776429&amp;X-Amz-SignedHeaders=host&amp;actor_id=0&amp;key_id=0&amp;repo_id=202533650&amp;response-content-disposition=attachment%3B%20filename%3Dopenevse_wifi_v1.bin.zip&amp;response-content-type=application%2Foctet-stream";
+const char *s_url = "https://www.google.com";
+//const char *s_url = "https://github-releases.githubusercontent.com/202533650/85e078fb-8a10-4dd8-a80c-40c7d86ac2e8?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=AKIAIWNJYAX4CSVEH53A%2F20211024%2Fus-east-1%2Fs3%2Faws4_request&amp;X-Amz-Date=20211024T222333Z&amp;X-Amz-Expires=300&amp;X-Amz-Signature=f8a0a2ae38cdc92a919b3235cb3dfa9088fe883dd4efb99e2a02fd3b50776429&amp;X-Amz-SignedHeaders=host&amp;actor_id=0&amp;key_id=0&amp;repo_id=202533650&amp;response-content-disposition=attachment%3B%20filename%3Dopenevse_wifi_v1.bin.zip&amp;response-content-type=application%2Foctet-stream";
 
-#if MG_ENABLE_SSL
 // Root CA bundle
 const char *root_ca =
 // Amazon Root CA 1, example of multiple Root CAs
@@ -75,7 +74,6 @@ const char *root_ca =
 "c4g/VhsxOBi0cQ+azcgOno4uG+GMmIPLHzHxREzGBHNJdmAPx/i9F4BrLunMTA5a\r\n"
 "mnkPIAou1Z5jJh5VkpTYghdae9C8x49OhgQ=\r\n"
 "-----END CERTIFICATE-----\r\n";
-#endif
 
 void printHeaders(MongooseHttpClientResponse *response)
 {
@@ -113,13 +111,10 @@ int main(int argc, char *argv[])
   }
 
   Mongoose.begin();
-
-#if MG_ENABLE_SSL
   Mongoose.setRootCa(root_ca);
-#endif
 
   // Based on https://github.com/typicode/jsonplaceholder#how-to
-  MongooseHttpClientRequest *request = client.beginRequest(s_url)->
+  client.beginRequest(s_url)->
     onBody([](MongooseHttpClientResponse *response) {
       if(s_show_headers && false == headers_shown) {
         printHeaders(response);
@@ -131,9 +126,7 @@ int main(int argc, char *argv[])
     })->
     onClose([]() {
       run = false;
-    });
-
-  client.send(request);
+    })->send();
 
   while(run) {
     Mongoose.poll(1000);

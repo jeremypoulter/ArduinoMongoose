@@ -19,12 +19,10 @@ typedef std::function<const char *(void)> ArduinoMongooseGetRootCaCallback;
 class MongooseCore
 {
   private:
-#if MG_ENABLE_SSL
     const char *_rootCa;
     ArduinoMongooseGetRootCaCallback _rootCaCallback;
-#endif
 #ifdef ARDUINO
-    String _nameserver;
+    char _nameserver[32];
 #endif // ARDUINO
     struct mg_mgr mgr;
 
@@ -35,11 +33,14 @@ class MongooseCore
     void poll(int timeout_ms);
 
     struct mg_mgr *getMgr();
-    void getDefaultOpts(struct mg_connect_opts *opts, bool secure = false);
+//    void getDefaultOpts(struct mg_connect_opts *opts, bool secure = false);
 
     void ipConfigChanged();
 
-#if MG_ENABLE_SSL
+    mg_str getRootCa() {
+      return mg_str_s(_rootCaCallback());
+    }
+
     void setRootCa(const char *rootCa) {
       _rootCa = rootCa;
     }
@@ -47,8 +48,6 @@ class MongooseCore
     void setRootCaCallback(ArduinoMongooseGetRootCaCallback callback) {
       _rootCaCallback = callback;
     }
-#endif
-
 };
 
 extern MongooseCore Mongoose;
