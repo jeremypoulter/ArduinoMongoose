@@ -22,7 +22,7 @@ class MongooseCore
     const char *_rootCa;
     ArduinoMongooseGetRootCaCallback _rootCaCallback;
 #ifdef ARDUINO
-    String _nameserver;
+    char _nameserver[32];
 #endif // ARDUINO
     struct mg_mgr mgr;
 

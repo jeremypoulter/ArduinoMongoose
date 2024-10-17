@@ -46,8 +46,7 @@ class MongooseString
 #ifdef ARDUINO
     MongooseString(String &str)
     {
-      _string.buf = str.c_str();
-      _string.len = str.length();
+      _string = mg_str_n(str.c_str(), str.length());
     }
 #endif
 
@@ -89,7 +88,7 @@ class MongooseString
       return *this;
     }
     MongooseString & operator = (const mg_str *rhs) {
-      _string.buf = rhs ? rhs->buf : NULL;
+      _string.buf = rhs ? rhs->buf : nullptr;
       _string.len = rhs ? rhs->len : 0;
       return *this;
     }
@@ -200,13 +199,11 @@ class MongooseString
     }
 
     String toString() {
-      if(NULL == _string.buf) {
+      if(nullptr == _string.buf) {
         return String("");
       }
-      mg_str copy = mg_strdup_nul(_string);
-      String ret = String(copy.buf);
-      mg_strfree(&copy);
-
+      String ret = String(_string.buf, _string.len);
+      
       return ret;
     }
 #endif // ARDUINO

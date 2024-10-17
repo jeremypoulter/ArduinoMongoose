@@ -54,8 +54,8 @@ void MongooseCore::ipConfigChanged()
     dns = ETH.dnsIP(0);
   }
 #endif
-  _nameserver = dns.toString();
-  mg_set_nameserver(&mgr, _nameserver.c_str());
+  snprintf(_nameserver, sizeof(_nameserver), "udp://%s:53", dns.toString().c_str());
+  mgr.dns4.url = _nameserver;
 #endif
 #endif // ARDUINO
 }
