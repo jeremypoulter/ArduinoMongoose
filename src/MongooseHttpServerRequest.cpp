@@ -40,7 +40,6 @@ MongooseHttpServerRequest::~MongooseHttpServerRequest()
   delete _msg;
   _msg = nullptr;
 #endif
-  getConnection()->fn_data = nullptr;
 }
 
 #if MG_COPY_HTTP_MESSAGE
@@ -324,6 +323,7 @@ void MongooseHttpServerRequest::requestAuthentication(const char* realm)
 void MongooseHttpServerRequest::onClose(mg_connection *nc)
 {
   MongooseSocket::onClose(nc);
+  nc->fn_data = nullptr;
   delete this;
 }
 

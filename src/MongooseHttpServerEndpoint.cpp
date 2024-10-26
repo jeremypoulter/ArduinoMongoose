@@ -13,7 +13,7 @@
 
 RequestHandle MongooseHttpServerEndpoint::willHandleRequest(mg_connection *nc, HttpRequestMethodComposite requestMethod, mg_http_message *msg)
 {
-  DBUGF("Cheching if %x %.*s matches %x %.*s", requestMethod, msg->uri.len, msg->uri.buf, _method, _uri.length(), _uri.c_str());
+  DBUGF("Cheching if %x %.*s matches %x %.*s", requestMethod, (int)msg->uri.len, msg->uri.buf, _method, (int)_uri.length(), _uri.c_str());
 
   // Check if the URI matches
   if(mg_match(msg->uri, _uri, nullptr))

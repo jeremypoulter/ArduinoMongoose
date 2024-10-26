@@ -105,7 +105,7 @@ void MongooseHttpServerResponse::sendHeaders(struct mg_connection *nc)
 {
   mg_printf(nc,
     "HTTP/1.1 %d %s\r\n"
-    "Content-Type: %.*s\r\n"
+    "Content-Type: %s\r\n"
     "Content-Length: %llu\r\n"
     "Connection: close\r\n"
     "%s\r\n",
@@ -130,7 +130,7 @@ bool MongooseHttpServerResponse::addHeader(const char *name, const char *value)
   char * newBuffer = (char *)realloc(_headerBuffer, len);
   if(newBuffer)
   {
-    snprintf(newBuffer + startLen, newLen, "\r\n%s: %s", name, value);
+    snprintf(newBuffer + startLen, newLen, "%s: %s\r\n", name, value);
     _headerBuffer = newBuffer;
     return true;
   }
