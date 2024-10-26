@@ -162,7 +162,7 @@ void setup()
     char message[MESSAGE_PARAM_LENGTH];
     if (request->getParam(PARAM_MESSAGE, message, MESSAGE_PARAM_LENGTH) > 0)  
     {
-      std::string reply = "Hello, GET: " + std::string(message);
+      std::string reply = "Hello, POST: " + std::string(message);
       request->send(200, "text/plain", reply.c_str());
     } else {
       request->send(400, "text/plain", "No message sent");
