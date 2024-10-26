@@ -4,8 +4,6 @@
 
 #ifdef ARDUINO
 #include <Arduino.h>
-#else
-#define utoa(i, buf, base) sprintf(buf, "%u", i)
 #endif
 
 #include <MicroDebug.h>
