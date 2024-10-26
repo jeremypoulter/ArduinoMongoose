@@ -6,8 +6,9 @@
 #include <Arduino.h>
 #endif
 
-#include <MongooseHttpServerConnection.h>
+#include <MicroDebug.h>
 
+#include <MongooseHttpServerConnection.h>
 
 void MongooseHttpServerConnection::onEvent(mg_connection *nc, int ev, void *p)
 {
@@ -15,6 +16,7 @@ void MongooseHttpServerConnection::onEvent(mg_connection *nc, int ev, void *p)
   {
     case MG_EV_HTTP_HDRS:
     {
+      DBUGF("MG_EV_HTTP_HDRS");
       struct mg_http_message *hm = (struct mg_http_message *) p;
       onHeaders(nc, hm);
       break;
@@ -22,6 +24,7 @@ void MongooseHttpServerConnection::onEvent(mg_connection *nc, int ev, void *p)
 
     case MG_EV_HTTP_MSG:
     {
+      DBUGF("MG_EV_HTTP_MSG");
       struct mg_http_message *hm = (struct mg_http_message *) p;
       onMessage(nc, hm);
       break;
@@ -29,6 +32,7 @@ void MongooseHttpServerConnection::onEvent(mg_connection *nc, int ev, void *p)
 
     case MG_EV_WS_OPEN:
     {
+      DBUGF("MG_EV_WS_OPEN");
       struct mg_http_message *hm = (struct mg_http_message *) p;
       onWebSocketConnect(nc, hm);
       break;
@@ -36,6 +40,7 @@ void MongooseHttpServerConnection::onEvent(mg_connection *nc, int ev, void *p)
 
     case MG_EV_WS_MSG:
     {
+      DBUGF("MG_EV_WS_MSG");
       struct mg_ws_message *wm = (struct mg_ws_message *) p;
       onWebSocketMessage(nc, wm);
       break;
@@ -43,6 +48,7 @@ void MongooseHttpServerConnection::onEvent(mg_connection *nc, int ev, void *p)
 
     case MG_EV_WS_CTL:
     {
+      DBUGF("MG_EV_WS_CTL");
       struct mg_ws_message *wm = (struct mg_ws_message *) p;
       onWebSocketControl(nc, wm);
       break;

@@ -139,12 +139,12 @@ void setup()
 #endif
   LOGF("Server started on port %d\n", port);
 
-  server.on("/$", HTTP_GET, [](MongooseHttpServerRequest *request) {
+  server.on("/", HTTP_GET, [](MongooseHttpServerRequest *request) {
     request->send(200, "text/plain", "Hello world");
   });
 
   // Send a GET request to <IP>/get?message=<message>
-  server.on("/get$", HTTP_GET, [](MongooseHttpServerRequest *request)
+  server.on("/get", HTTP_GET, [](MongooseHttpServerRequest *request)
   {
     char message[MESSAGE_PARAM_LENGTH];
     if (request->getParam(PARAM_MESSAGE, message, MESSAGE_PARAM_LENGTH) > 0)  
@@ -157,7 +157,7 @@ void setup()
   });
 
   // Send a POST request to <IP>/post with a form field message set to <message>
-  server.on("/post$", HTTP_POST, [](MongooseHttpServerRequest *request)
+  server.on("/post", HTTP_POST, [](MongooseHttpServerRequest *request)
   {
     char message[MESSAGE_PARAM_LENGTH];
     if (request->getParam(PARAM_MESSAGE, message, MESSAGE_PARAM_LENGTH) > 0)  
@@ -170,7 +170,7 @@ void setup()
   });
 
   // Test the basic response class
-  server.on("/basic$", HTTP_GET, [](MongooseHttpServerRequest *request) {
+  server.on("/basic", HTTP_GET, [](MongooseHttpServerRequest *request) {
     MongooseHttpServerResponseBasic *resp = request->beginResponse();
     resp->setCode(200);
     resp->setContentType("text/html");
@@ -193,7 +193,7 @@ void setup()
 
 #ifdef ARDUINO
   // Test the stream response class
-  server.on("/stream$", HTTP_GET, [](MongooseHttpServerRequest *request) {
+  server.on("/stream", HTTP_GET, [](MongooseHttpServerRequest *request) {
     MongooseHttpServerResponseStream *resp = request->beginResponseStream();
     resp->setCode(200);
     resp->setContentType("text/html");
@@ -220,7 +220,7 @@ void setup()
   });
 
     // Send a POST request to <IP>/post with a form field message set to <message>
-  server.on("/string$", HTTP_ANY, [](MongooseHttpServerRequest *request) {
+  server.on("/string", HTTP_ANY, [](MongooseHttpServerRequest *request) {
     String message;
     if (request->hasParam(PARAM_MESSAGE))
     {

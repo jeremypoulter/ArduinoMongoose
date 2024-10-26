@@ -8,8 +8,8 @@
 
 #include "MongooseHttpWebSocketConnection.h"
 
-MongooseHttpWebSocketConnection::MongooseHttpWebSocketConnection(mg_connection *nc, HttpRequestMethodComposite method, mg_http_message *msg) :
-  MongooseHttpServerRequest(nc, method, msg)
+MongooseHttpWebSocketConnection::MongooseHttpWebSocketConnection(mg_connection *nc, HttpRequestMethodComposite method, mg_http_message *msg, MongooseHttpServerEndpoint *endpoint) :
+  MongooseHttpServerRequest(nc, method, msg, endpoint)
 {
 }
 

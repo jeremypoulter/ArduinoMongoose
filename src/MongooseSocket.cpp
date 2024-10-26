@@ -47,7 +47,7 @@ void MongooseSocket::eventHandler(mg_connection *nc, int ev, void *p)
 void MongooseSocket::processEvent(mg_connection *nc, int ev, void *p)
 {
   if (ev != MG_EV_POLL) {
-    DBUGF("%s %p: %d", __PRETTY_FUNCTION__, nc, ev);
+    DBUGF("%s %p %p: %d", __PRETTY_FUNCTION__, nc, this, ev);
   }
 
   switch (ev) 

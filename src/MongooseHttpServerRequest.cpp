@@ -10,8 +10,9 @@
 #include <algorithm>
 
 #include "MongooseHttpServerRequest.h"
+#include "MongooseHttpServerEndpoint.h"
 
-MongooseHttpServerRequest::MongooseHttpServerRequest(mg_connection *nc, HttpRequestMethodComposite method, mg_http_message *msg) :
+MongooseHttpServerRequest::MongooseHttpServerRequest(mg_connection *nc, HttpRequestMethodComposite method, mg_http_message *msg, MongooseHttpServerEndpoint *endpoint) :
   MongooseHttpServerConnection(),
 #if MG_COPY_HTTP_MESSAGE
   _msg(duplicateMessage(msg)),
@@ -20,6 +21,7 @@ MongooseHttpServerRequest::MongooseHttpServerRequest(mg_connection *nc, HttpRequ
 #endif
   _method(method),
   _response(nullptr),
+  _endpoint(endpoint),
   _responseSent(false)
 {
   connect(nc);
@@ -34,7 +36,7 @@ MongooseHttpServerRequest::~MongooseHttpServerRequest()
   }
 
 #if MG_COPY_HTTP_MESSAGE
-  free(&_msg->message.buf);
+  free(_msg->message.buf);
   delete _msg;
   _msg = nullptr;
 #endif
@@ -129,7 +131,7 @@ void MongooseHttpServerRequest::sendBody()
     if(free > 0) 
     {
       size_t sent = _response->sendBody(getConnection(), free);
-      DBUGF("Connection %p: sent %zu/%zu, %lx", getConnection(), sent, free, getConnection()->is_draining);
+      DBUGF("Connection %p: sent %zu/%zu, %d", getConnection(), sent, free, getConnection()->is_draining);
 
       if(sent < free) {
         DBUGLN("Response finished");
@@ -333,3 +335,13 @@ void MongooseHttpServerRequest::onPoll(mg_connection *nc)
   }
 }
 
+void MongooseHttpServerRequest::onMessage(mg_connection *nc, mg_http_message *msg)
+{
+  DBUGF("MongooseHttpServerRequest::onMessage");
+#if MG_COPY_HTTP_MESSAGE
+  _msg->body = msg->body;
+#else
+  _msg = msg;
+#endif
+  _endpoint->handleRequest(this);
+}

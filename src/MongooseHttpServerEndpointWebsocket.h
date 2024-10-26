@@ -24,7 +24,7 @@ class MongooseHttpServerEndpointWebSocket : public MongooseHttpServerEndpoint
 
   protected:
     virtual MongooseHttpServerRequest *requestFactory(mg_connection *nc, HttpRequestMethodComposite method, mg_http_message *msg) {
-      return new MongooseHttpWebSocketConnection(nc, method, msg);
+      return new MongooseHttpWebSocketConnection(nc, method, msg, this);
     }
 
   public:

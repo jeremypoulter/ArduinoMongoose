@@ -6,13 +6,17 @@
 #include <Arduino.h>
 #endif
 
+#include <MicroDebug.h>
+
 #include "MongooseHttpServerEndpoint.h"
 #include "MongooseHttp.h"
 
 RequestHandle MongooseHttpServerEndpoint::willHandleRequest(mg_connection *nc, HttpRequestMethodComposite requestMethod, mg_http_message *msg)
 {
+  DBUGF("Cheching if %x %.*s matches %x %.*s", requestMethod, msg->uri.len, msg->uri.buf, _method, _uri.length(), _uri.c_str());
+
   // Check if the URI matches
-  if(mg_match(_uri, msg->uri, nullptr))
+  if(mg_match(msg->uri, _uri, nullptr))
   {
     // Check if the method is allowed
     if(_method & requestMethod)
@@ -32,4 +36,11 @@ RequestHandle MongooseHttpServerEndpoint::willHandleRequest(mg_connection *nc, H
   }
   
   return REQUEST_NO_MATCH;
+}
+
+void MongooseHttpServerEndpoint::handleRequest(MongooseHttpServerRequest *request)
+{
+  if(_request) {
+    _request(request);
+  }
 }

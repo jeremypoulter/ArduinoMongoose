@@ -17,6 +17,8 @@
 #define MG_COPY_HTTP_MESSAGE 1
 #endif
 
+class MongooseHttpServerEndpoint;
+
 class MongooseHttpServerRequest : public MongooseHttpServerConnection
 {
   private:
@@ -25,11 +27,13 @@ class MongooseHttpServerRequest : public MongooseHttpServerConnection
       onPoll(nc);
     }
     void onClose(mg_connection *nc);
+    void onMessage(mg_connection *nc, mg_http_message *msg);
 
   protected:
     mg_http_message *_msg;
     HttpRequestMethodComposite _method;
     MongooseHttpServerResponse *_response;
+    MongooseHttpServerEndpoint *_endpoint;
     bool _responseSent;
 
     void sendBody();
@@ -39,7 +43,7 @@ class MongooseHttpServerRequest : public MongooseHttpServerConnection
 #endif
 
   public:
-    MongooseHttpServerRequest(mg_connection *nc, HttpRequestMethodComposite method, mg_http_message *msg);
+    MongooseHttpServerRequest(mg_connection *nc, HttpRequestMethodComposite method, mg_http_message *msg, MongooseHttpServerEndpoint *endpoint);
     virtual ~MongooseHttpServerRequest();
 
     virtual bool isUpload() { return false; }

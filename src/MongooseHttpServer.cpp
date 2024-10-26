@@ -15,7 +15,7 @@
 MongooseHttpServer::MongooseHttpServer() :
   MongooseHttpServerConnection(),
   _endpoints(),
-  _notFound(HTTP_ANY, "*")
+  _notFound(HTTP_ANY, "#")
 {
   _notFound.onRequest([](MongooseHttpServerRequest *request) {
     request->send(404);

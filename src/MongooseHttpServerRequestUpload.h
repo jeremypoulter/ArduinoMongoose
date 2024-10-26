@@ -20,8 +20,8 @@ class MongooseHttpServerRequestUpload : public MongooseHttpServerRequest
     uint64_t index;
 
   public:
-    MongooseHttpServerRequestUpload(mg_connection *nc, HttpRequestMethodComposite method, mg_http_message *msg) :
-      MongooseHttpServerRequest(nc, method, msg),
+    MongooseHttpServerRequestUpload(mg_connection *nc, HttpRequestMethodComposite method, mg_http_message *msg, MongooseHttpServerEndpoint *endpoint) :
+      MongooseHttpServerRequest(nc, method, msg, endpoint),
       index(0)
     {
     }
