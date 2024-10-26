@@ -142,9 +142,8 @@ void MongooseHttpServerRequest::sendBody()
 }
 
 
-void MongooseHttpServerRequest::send(int code)
-{
-  mg_http_reply(getConnection(), code, "Content-Type: text/plain", "");
+void MongooseHttpServerRequest::send(int code) {
+  send(code, "text/plain", "");
 }
 
 void MongooseHttpServerRequest::send(int code, const char *contentType, const char *content)
@@ -152,7 +151,7 @@ void MongooseHttpServerRequest::send(int code, const char *contentType, const ch
   char headers[128];
   mg_snprintf(headers, sizeof(headers), 
       "Connection: close\r\n"
-      "Content-Type: %s",
+      "Content-Type: %s\r\n",
       contentType);
 
   mg_http_reply(getConnection(), code, headers, "%s", content);
