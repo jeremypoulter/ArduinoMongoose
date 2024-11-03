@@ -10,7 +10,7 @@
 
 #include <MongooseHttpServerConnection.h>
 
-void MongooseHttpServerConnection::onEvent(mg_connection *nc, int ev, void *p)
+void MongooseHttpServerConnection::handleEvent(mg_connection *nc, int ev, void *p)
 {
   switch (ev)
   {
@@ -18,7 +18,7 @@ void MongooseHttpServerConnection::onEvent(mg_connection *nc, int ev, void *p)
     {
       DBUGF("MG_EV_HTTP_HDRS");
       struct mg_http_message *hm = (struct mg_http_message *) p;
-      onHeaders(nc, hm);
+      handleHeaders(nc, hm);
       break;
     }
 
@@ -26,7 +26,7 @@ void MongooseHttpServerConnection::onEvent(mg_connection *nc, int ev, void *p)
     {
       DBUGF("MG_EV_HTTP_MSG");
       struct mg_http_message *hm = (struct mg_http_message *) p;
-      onMessage(nc, hm);
+      handleMessage(nc, hm);
       break;
     }
 
@@ -34,7 +34,7 @@ void MongooseHttpServerConnection::onEvent(mg_connection *nc, int ev, void *p)
     {
       DBUGF("MG_EV_WS_OPEN");
       struct mg_http_message *hm = (struct mg_http_message *) p;
-      onWebSocketConnect(nc, hm);
+      handleWebSocketConnect(nc, hm);
       break;
     }
 
@@ -42,7 +42,7 @@ void MongooseHttpServerConnection::onEvent(mg_connection *nc, int ev, void *p)
     {
       DBUGF("MG_EV_WS_MSG");
       struct mg_ws_message *wm = (struct mg_ws_message *) p;
-      onWebSocketMessage(nc, wm);
+      handleWebSocketMessage(nc, wm);
       break;
     }
 
@@ -50,7 +50,7 @@ void MongooseHttpServerConnection::onEvent(mg_connection *nc, int ev, void *p)
     {
       DBUGF("MG_EV_WS_CTL");
       struct mg_ws_message *wm = (struct mg_ws_message *) p;
-      onWebSocketControl(nc, wm);
+      handleWebSocketControl(nc, wm);
       break;
     }
   }

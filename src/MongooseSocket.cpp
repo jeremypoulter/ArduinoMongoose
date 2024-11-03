@@ -122,7 +122,7 @@ void MongooseSocket::processEvent(mg_connection *nc, int ev, void *p)
 
     default:
     {
-      onEvent(nc, ev, p);
+      handleEvent(nc, ev, p);
       break;
     }
   }
@@ -193,7 +193,7 @@ void MongooseSocket::onClose(mg_connection *nc)
   }
 }
 
-void MongooseSocket::onEvent(mg_connection *nc, int ev, void *p)
+void MongooseSocket::handleEvent(mg_connection *nc, int ev, void *p)
 {
   DBUGF("Unhandled event %d", ev);
 }
@@ -202,6 +202,7 @@ bool MongooseSocket::connect(mg_connection *nc)
 {
   if(!connected() && nc) {
     _nc = nc;
+    nc->data[MONGOOSE_SOCKET_TYPE] = getType();
     return true;
   }
 

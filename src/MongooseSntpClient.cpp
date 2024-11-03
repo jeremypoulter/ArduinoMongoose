@@ -31,7 +31,7 @@ void MongooseSntpClient::onResolve(mg_connection *nc)
   mg_sntp_request(nc);
 }
 
-void MongooseSntpClient::onEvent(mg_connection *nc, int ev, void *p)
+void MongooseSntpClient::handleEvent(mg_connection *nc, int ev, void *p)
 {
   switch (ev) 
   {

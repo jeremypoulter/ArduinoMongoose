@@ -11,6 +11,8 @@
 
 #include <functional>
 
+#define MONGOOSE_SOCKET_TYPE    0
+
 typedef std::function<void(const char *error)> MongooseSocketErrorHandler;
 typedef std::function<void()> MongooseSocketCloseHandler;
 
@@ -41,7 +43,7 @@ class MongooseSocket
     virtual void onSend(mg_connection *nc, long num_bytes);
     virtual void onPoll(mg_connection *nc);
     virtual void onClose(mg_connection *nc);
-    virtual void onEvent(mg_connection *nc, int ev, void *p);
+    virtual void handleEvent(mg_connection *nc, int ev, void *p);
 
     bool connect(mg_connection *nc);
 //    bool bind(uint16_t port);
@@ -70,9 +72,6 @@ class MongooseSocket
       _reject_unauthorized = reject;
     }
 
-    mg_connection *getConnection() {
-      return _nc;
-    }
     void disconnect() {
       _nc->is_draining = 1;
     }
@@ -88,13 +87,32 @@ class MongooseSocket
     virtual bool connected() {
       return _nc;
     }
+
     MongooseSocket *onError(MongooseSocketErrorHandler fnHandler) {
       _onError = fnHandler;
       return this;
     }
+
     MongooseSocket *onClose(MongooseSocketCloseHandler fnHandler) {
       _onClose = fnHandler;
       return this;
+    }
+
+    mg_connection *getConnection() {
+      return _nc;
+    }
+
+    mg_addr *getRemoteAddress() {
+      return &_nc->rem;
+    }
+
+    mg_addr *getLocalAddress() {
+      return &_nc->loc;
+    }
+
+    static const char Type = 'S';
+    virtual char getType() {
+      return Type;
     }
 };
 

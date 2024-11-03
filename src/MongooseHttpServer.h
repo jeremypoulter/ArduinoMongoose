@@ -19,7 +19,7 @@
 #include "MongooseHttpServerConnection.h"
 #include "MongooseHttpServerEndpoint.h"
 #include "MongooseHttpServerEndpointUpload.h"
-#include "MongooseHttpServerEndpointWebsocket.h"
+#include "MongooseHttpServerEndpointWebSocket.h"
 
 
 class MongooseHttpServer : public MongooseHttpServerConnection
@@ -31,7 +31,7 @@ class MongooseHttpServer : public MongooseHttpServerConnection
 
     HttpRequestMethodComposite method(mg_str method);
   protected:
-    void onHeaders(mg_connection *nc, mg_http_message *msg);
+    void handleHeaders(mg_connection *nc, mg_http_message *msg);
 
   public:
     MongooseHttpServer();

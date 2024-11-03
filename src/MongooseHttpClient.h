@@ -38,7 +38,7 @@ class MongooseHttpClientRequest : public MongooseSocket
     uint64_t _timeout_ms;
 
   protected:
-    void onEvent(mg_connection *nc, int ev, void *p);
+    void handleEvent(mg_connection *nc, int ev, void *p);
     void onOpen(mg_connection *nc);
     void onConnect(mg_connection *nc);
     void onPoll(mg_connection *nc);

@@ -319,22 +319,23 @@ void MongooseHttpServerRequest::requestAuthentication(const char* realm)
 }
 
 
-void MongooseHttpServerRequest::onClose(mg_connection *nc)
+void MongooseHttpServerRequest::handleClose(mg_connection *nc)
 {
+  _endpoint->handleClose(this);
   MongooseSocket::onClose(nc);
   nc->fn_data = nullptr;
   delete this;
 }
 
 
-void MongooseHttpServerRequest::onPoll(mg_connection *nc)
+void MongooseHttpServerRequest::handlePoll(mg_connection *nc)
 {
   if(responseSent()) {
     sendBody();
   }
 }
 
-void MongooseHttpServerRequest::onMessage(mg_connection *nc, mg_http_message *msg)
+void MongooseHttpServerRequest::handleMessage(mg_connection *nc, mg_http_message *msg)
 {
   DBUGF("MongooseHttpServerRequest::onMessage");
 #if MG_COPY_HTTP_MESSAGE

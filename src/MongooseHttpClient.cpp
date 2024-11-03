@@ -91,7 +91,7 @@ MongooseHttpClientRequest::~MongooseHttpClientRequest()
   }
 }
 
-void MongooseHttpClientRequest::onEvent(mg_connection *nc, int ev, void *p)
+void MongooseHttpClientRequest::handleEvent(mg_connection *nc, int ev, void *p)
 {
   switch (ev)
   {

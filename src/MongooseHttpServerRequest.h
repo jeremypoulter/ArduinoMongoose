@@ -22,12 +22,12 @@ class MongooseHttpServerEndpoint;
 class MongooseHttpServerRequest : public MongooseHttpServerConnection
 {
   private:
-    void onPoll(mg_connection *nc);
-    void onSend(mg_connection *nc, int num_bytes) {
-      onPoll(nc);
+    void handlePoll(mg_connection *nc);
+    void handleSend(mg_connection *nc, int num_bytes) {
+      handlePoll(nc);
     }
-    void onClose(mg_connection *nc);
-    void onMessage(mg_connection *nc, mg_http_message *msg);
+    void handleClose(mg_connection *nc);
+    void handleMessage(mg_connection *nc, mg_http_message *msg);
 
   protected:
     mg_http_message *_msg;

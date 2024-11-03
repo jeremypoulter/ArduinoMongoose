@@ -37,7 +37,7 @@ void MongooseMqttClient::onClose(mg_connection *nc)
   MongooseSocket::onClose(nc);
 }
 
-void MongooseMqttClient::onEvent(mg_connection *nc, int ev, void *p)
+void MongooseMqttClient::handleEvent(mg_connection *nc, int ev, void *p)
 {
   switch (ev) 
   {
