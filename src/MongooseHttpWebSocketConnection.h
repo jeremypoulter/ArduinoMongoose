@@ -20,6 +20,11 @@
 
 class MongooseHttpWebSocketConnection : public MongooseHttpServerRequest
 {
+  protected:
+    void handleWebSocketConnect(mg_connection *nc, mg_http_message *msg);
+    void handleWebSocketMessage(mg_connection *nc, mg_ws_message *msg);
+    void handleWebSocketControl(mg_connection *nc, mg_ws_message *msg);
+
   public:
     MongooseHttpWebSocketConnection(mg_connection *nc, HttpRequestMethodComposite method, mg_http_message *msg, MongooseHttpServerEndpoint *endpoint);
     virtual ~MongooseHttpWebSocketConnection();
@@ -36,9 +41,10 @@ class MongooseHttpWebSocketConnection : public MongooseHttpServerRequest
     }
 #endif
 
-//    const union socket_address *getRemoteAddress() {
-//      return &(_nc->sa);
-//    }
+    static const char Type = 'W';
+    virtual char getType() {
+      return Type;
+    }
 };
 
 #endif /* MongooseHttpWebSocketConnection_h */

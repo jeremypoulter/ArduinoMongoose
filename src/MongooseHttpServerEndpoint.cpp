@@ -13,7 +13,7 @@
 
 RequestHandle MongooseHttpServerEndpoint::willHandleRequest(mg_connection *nc, HttpRequestMethodComposite requestMethod, mg_http_message *msg)
 {
-  DBUGF("Cheching if %x %.*s matches %x %.*s", requestMethod, (int)msg->uri.len, msg->uri.buf, _method, (int)_uri.length(), _uri.c_str());
+  DBUGF("Checking if %x %.*s matches %x %.*s", requestMethod, (int)msg->uri.len, msg->uri.buf, _method, (int)_uri.length(), _uri.c_str());
 
   // Check if the URI matches
   if(mg_match(msg->uri, _uri, nullptr))
@@ -25,6 +25,7 @@ RequestHandle MongooseHttpServerEndpoint::willHandleRequest(mg_connection *nc, H
       if(request)
       {
         nc->fn_data = request;
+        nc->data[MONGOOSE_SOCKET_TYPE] = request->getType();
         
         return REQUEST_WILL_HANDLE;
       }
@@ -42,5 +43,12 @@ void MongooseHttpServerEndpoint::handleRequest(MongooseHttpServerRequest *reques
 {
   if(_request) {
     _request(request);
+  }
+}
+
+void MongooseHttpServerEndpoint::handleClose(MongooseHttpServerRequest *request)
+{
+  if(_close) {
+    _close(request);
   }
 }

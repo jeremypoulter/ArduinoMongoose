@@ -18,6 +18,8 @@ typedef std::function<void(MongooseHttpWebSocketConnection *connection, int flag
 
 class MongooseHttpServerEndpointWebSocket : public MongooseHttpServerEndpoint
 {
+  friend MongooseHttpWebSocketConnection;
+
   private:
     MongooseHttpWebSocketConnectionHandler _wsConnect;
     MongooseHttpWebSocketFrameHandler _wsFrame;
@@ -25,6 +27,18 @@ class MongooseHttpServerEndpointWebSocket : public MongooseHttpServerEndpoint
   protected:
     virtual MongooseHttpServerRequest *requestFactory(mg_connection *nc, HttpRequestMethodComposite method, mg_http_message *msg) {
       return new MongooseHttpWebSocketConnection(nc, method, msg, this);
+    }
+
+    void handleConnect(MongooseHttpWebSocketConnection *connection) {
+      if(_wsConnect) {
+        _wsConnect(connection);
+      }
+    }
+
+    void handleFrame(MongooseHttpWebSocketConnection *connection, int flags, uint8_t *data, size_t len) {
+      if(_wsFrame) {
+        _wsFrame(connection, flags, data, len);
+      }
     }
 
   public:
@@ -36,12 +50,12 @@ class MongooseHttpServerEndpointWebSocket : public MongooseHttpServerEndpoint
 
     }
 
-    MongooseHttpServerEndpoint *onConnect(MongooseHttpWebSocketConnectionHandler handler) {
+    MongooseHttpServerEndpointWebSocket *onConnect(MongooseHttpWebSocketConnectionHandler handler) {
       this->_wsConnect = handler;
       return this;
     }
 
-    MongooseHttpServerEndpoint *onFrame(MongooseHttpWebSocketFrameHandler handler) {
+    MongooseHttpServerEndpointWebSocket *onFrame(MongooseHttpWebSocketFrameHandler handler) {
       this->_wsFrame = handler;
       return this;
     }

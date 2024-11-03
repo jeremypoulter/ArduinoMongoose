@@ -149,7 +149,7 @@ HttpRequestMethodComposite MongooseHttpServer::method(mg_str method)
   return HTTP_ANY;
 }
 
-void MongooseHttpServer::onHeaders(mg_connection *nc, mg_http_message *msg)
+void MongooseHttpServer::handleHeaders(mg_connection *nc, mg_http_message *msg)
 {
   RequestHandle handled = REQUEST_NO_MATCH;
   HttpRequestMethodComposite requestMethod = method(msg->method);
@@ -182,5 +182,29 @@ void MongooseHttpServer::onHeaders(mg_connection *nc, mg_http_message *msg)
     nc->is_draining = 1;
   } else if(handled == REQUEST_NO_MATCH) {
     _notFound.willHandleRequest(nc, requestMethod, msg);
+  }
+}
+
+void MongooseHttpServer::sendAll(MongooseHttpWebSocketConnection *from, const char *endpoint, int op, const void *data, size_t len)
+{
+  mg_mgr *mgr = Mongoose.getMgr();
+
+  const struct mg_connection *nc = from ? from->getConnection() : nullptr;
+  struct mg_connection *c;
+  for (c = mgr->conns; c != nullptr; c = c->next)
+  {
+    if (c == nc) { 
+      continue; // Don't send to the sender.
+    }
+
+    if (c->is_websocket && MongooseHttpWebSocketConnection::Type == c->data[MONGOOSE_SOCKET_TYPE])
+    {
+      MongooseHttpWebSocketConnection *to = (MongooseHttpWebSocketConnection *)c->fn_data;
+      if(endpoint && !to->uri().equals(endpoint)) {
+        continue;
+      }
+      DBUGF("%.*s sending to %p", (int)to->uri().length(), to->uri().c_str(), to);
+      to->send(op, data, len);
+    }
   }
 }

@@ -172,8 +172,7 @@ const char *index_page =
 "      Send messages, and see messages sent by other clients.\n"
 "    </p>\n"
 "\n"
-"    <div id=\"messages\">\n"
-"    </div>\n"
+"    <div id=\"messages\">\n""    </div>\n"
 "\n"
 "    <p>\n"
 "      <input type=\"text\" id=\"send_input\" />\n"
@@ -186,12 +185,8 @@ const char *index_page =
 void broadcast(MongooseHttpWebSocketConnection *from, MongooseString msg)
 {
   char buf[500];
-  char addr[32];
-  mg_sock_addr_to_str(from->getRemoteAddress(), addr, sizeof(addr),
-                      MG_SOCK_STRINGIFY_IP | MG_SOCK_STRINGIFY_PORT);
-
-  snprintf(buf, sizeof(buf), "%s %.*s", addr, (int) msg.length(), msg.c_str());
-  printf("%s\n", buf);
+  mg_snprintf(buf, sizeof(buf), "%M %.*s", mg_print_ip_port, from->getRemoteAddress(), (int)msg.length(), msg.c_str());
+  LOGF("%s\n", buf);
   server.sendAll(from, buf);
 }
 
@@ -230,21 +225,20 @@ void setup()
 #endif
   LOGF("Server started on port %d\n", port);
 
-  server.on("/$", HTTP_GET, [](MongooseHttpServerRequest *request) {
+  server.on("/", HTTP_GET, [](MongooseHttpServerRequest *request) {
     request->send(200, "text/html", index_page);
   });
 
   // Test the stream response class
-  server.on("/ws$")->
+  server.on("/ws", [](MongooseHttpWebSocketConnection *connection, int flags, uint8_t *data, size_t len) {
+      broadcast(connection, MongooseString((const char *)data, len));
+    })->
     onConnect([](MongooseHttpWebSocketConnection *connection) {
       broadcast(connection, MongooseString("++ joined"));
     })->
     onClose([](MongooseHttpServerRequest *c) {
       MongooseHttpWebSocketConnection *connection = static_cast<MongooseHttpWebSocketConnection *>(c);
       broadcast(connection, MongooseString("++ left"));
-    })->
-    onFrame([](MongooseHttpWebSocketConnection *connection, int flags, uint8_t *data, size_t len) {
-      broadcast(connection, MongooseString((const char *)data, len));
     });
 }
 
