@@ -25,7 +25,7 @@ class MongooseHttpServerResponseStream:
   public Print
 {
   private:
-    mbuf _content;
+    mg_iobuf _content;
 
   public:
     MongooseHttpServerResponseStream();

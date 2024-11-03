@@ -8,6 +8,7 @@
 #include "MongooseHttpServerConnection.h"
 #include "MongooseHttpServerResponse.h"
 #include "MongooseHttpServerResponseBasic.h"
+#include "MongooseHttpServerResponseStream.h"
 
 // Make a copy of the HTTP header so it is avalible outside of the onReceive
 // callback. Setting to 0 will save some runtime memory but accessing the HTTP
