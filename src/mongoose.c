@@ -22,6 +22,8 @@
 #line 1 "mongoose/src/mg_internal.h"
 #endif
 
+#undef poll
+
 #ifndef CS_MONGOOSE_SRC_INTERNAL_H_
 #define CS_MONGOOSE_SRC_INTERNAL_H_
 
@@ -4885,6 +4887,7 @@ const char *mg_set_ssl(struct mg_connection *nc, const char *cert,
 #include <mbedtls/ssl_internal.h>
 #include <mbedtls/x509_crt.h>
 #include <mbedtls/version.h>
+#include <mbedtls/error.h>
 
 static void mg_ssl_mbed_log(void *ctx, int level, const char *file, int line,
                             const char *str) {
@@ -5079,7 +5082,9 @@ static enum mg_ssl_if_result mg_ssl_if_mbed_err(struct mg_connection *nc,
     nc->flags |= MG_F_CLOSE_IMMEDIATELY;
     res = MG_SSL_OK;
   } else {
-    LOG(LL_ERROR, ("%p mbedTLS error: -0x%04x", nc, -ret));
+    char buffer[256];
+    mbedtls_strerror(ret, buffer, sizeof(buffer));
+    LOG(LL_ERROR, ("%p mbedTLS error: -0x%04x, %s", nc, -ret, buffer));
     nc->flags |= MG_F_CLOSE_IMMEDIATELY;
     res = MG_SSL_ERROR;
   }
@@ -5212,7 +5217,7 @@ static enum mg_ssl_if_result mg_use_ca_cert(struct mg_ssl_if_ctx *ctx,
 #else
   ctx->ca_cert = (mbedtls_x509_crt *) MG_CALLOC(1, sizeof(*ctx->ca_cert));
   mbedtls_x509_crt_init(ctx->ca_cert);
-  if (mbedtls_x509_crt_parse_file(ctx->ca_cert, ca_cert) != 0) {
+  if (mbedtls_x509_crt_parse(ctx->ca_cert, (uint8_t *)ca_cert, strlen(ca_cert) + 1) != 0) {
     return MG_SSL_ERROR;
   }
   mbedtls_ssl_conf_ca_chain(ctx->conf, ctx->ca_cert, NULL);
@@ -5232,11 +5237,11 @@ static enum mg_ssl_if_result mg_use_cert(struct mg_ssl_if_ctx *ctx,
   mbedtls_x509_crt_init(ctx->cert);
   ctx->key = (mbedtls_pk_context *) MG_CALLOC(1, sizeof(*ctx->key));
   mbedtls_pk_init(ctx->key);
-  if (mbedtls_x509_crt_parse_file(ctx->cert, cert) != 0) {
+  if (mbedtls_x509_crt_parse(ctx->cert, (uint8_t *)cert, strlen(cert) + 1) != 0) {
     MG_SET_PTRPTR(err_msg, "Invalid SSL cert");
     return MG_SSL_ERROR;
   }
-  if (mbedtls_pk_parse_keyfile(ctx->key, key, NULL) != 0) {
+  if (mbedtls_pk_parse_key(ctx->key, (uint8_t *)key, strlen(key) + 1, NULL, 0) != 0) {
     MG_SET_PTRPTR(err_msg, "Invalid SSL key");
     return MG_SSL_ERROR;
   }
@@ -5819,6 +5824,9 @@ struct mg_http_proto_data {
   struct mg_http_proto_data_chuncked chunk;
   struct mg_http_endpoint *endpoints;
   mg_event_handler_t endpoint_handler;
+#if MG_ENABLE_CALLBACK_USERDATA
+  void *user_data;
+#endif
   struct mg_reverse_proxy_data reverse_proxy_data;
   size_t rcvd; /* How many bytes we have received. */
 };
@@ -6422,11 +6430,13 @@ void mg_http_handler(struct mg_connection *nc, int ev,
       mp.var_name = pd->mp_stream.var_name;
       mp.file_name = pd->mp_stream.file_name;
       mg_call(nc, (pd->endpoint_handler ? pd->endpoint_handler : nc->handler),
-              nc->user_data, MG_EV_HTTP_PART_END, &mp);
+              (pd->endpoint_handler ? pd->user_data : nc->user_data),
+              MG_EV_HTTP_PART_END, &mp);
       mp.var_name = NULL;
       mp.file_name = NULL;
       mg_call(nc, (pd->endpoint_handler ? pd->endpoint_handler : nc->handler),
-              nc->user_data, MG_EV_HTTP_MULTIPART_REQUEST_END, &mp);
+              (pd->endpoint_handler ? pd->user_data : nc->user_data),
+              MG_EV_HTTP_MULTIPART_REQUEST_END, &mp);
     } else
 #endif
         if (io->len > 0 &&
@@ -6443,7 +6453,7 @@ void mg_http_handler(struct mg_connection *nc, int ev,
     }
     if (pd != NULL && pd->endpoint_handler != NULL &&
         pd->endpoint_handler != nc->handler) {
-      mg_call(nc, pd->endpoint_handler, nc->user_data, ev, NULL);
+      mg_call(nc, pd->endpoint_handler, pd->user_data, ev, NULL);
     }
   }
 
@@ -6656,6 +6666,7 @@ static void mg_http_multipart_begin(struct mg_connection *nc,
     ep = mg_http_get_endpoint_handler(nc->listener, &hm->uri);
     if (ep != NULL) {
       pd->endpoint_handler = ep->handler;
+      pd->user_data = ep->user_data;
     }
 
     mg_http_call_endpoint_handler(nc, MG_EV_HTTP_MULTIPART_REQUEST, hm);
@@ -6681,7 +6692,7 @@ static size_t mg_http_multipart_call_handler(struct mg_connection *c, int ev,
   mp.data.p = data;
   mp.data.len = data_len;
   mp.num_data_consumed = data_len;
-  mg_call(c, pd->endpoint_handler, c->user_data, ev, &mp);
+  mg_call(c, pd->endpoint_handler, pd->user_data, ev, &mp);
   pd->mp_stream.user_data = mp.user_data;
   pd->mp_stream.data_avail = (mp.num_data_consumed != data_len);
   return mp.num_data_consumed;
@@ -7299,9 +7310,13 @@ int mg_get_http_var(const struct mg_str *buf, const char *name, char *dst,
     dst[0] = '\0';
 
     for (p = buf->p; p + name_len < e; p++) {
-      if ((p == buf->p || p[-1] == '&') && p[name_len] == '=' &&
+      if ((p == buf->p || p[-1] == '&') && 
+          (p[name_len] == '=' || p[name_len] == '&') &&
           !mg_ncasecmp(name, p, name_len)) {
-        p += name_len + 1;
+        p += name_len;
+        if('=' == *p) {
+          p++;
+        }
         s = (const char *) memchr(p, '&', (size_t)(e - p));
         if (s == NULL) {
           s = e;
@@ -8786,6 +8801,7 @@ static void mg_http_call_endpoint_handler(struct mg_connection *nc, int ev,
       pd->endpoint_handler = ep->handler;
 #if MG_ENABLE_CALLBACK_USERDATA
       user_data = ep->user_data;
+      pd->user_data = ep->user_data;
 #endif
     }
   }
@@ -12836,7 +12852,10 @@ MG_INTERNAL int mg_sntp_parse_reply(const char *buf, int len,
 
   mg_ntp_to_tv(trsm_ts_T3, &tv);
 
-  msg->time = (double) tv.tv_sec + (((double) tv.tv_usec + delay) / 1000000.0);
+  msg->tv.tv_sec = tv.tv_sec + (delay / 1000000);
+  msg->tv.tv_usec = tv.tv_usec + (delay % 1000000);
+
+  msg->time = (double) msg->tv.tv_sec + (((double) msg->tv.tv_usec) / 1000000.0);
 
   return 0;
 }
