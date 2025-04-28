@@ -9,6 +9,7 @@
 #endif
 
 #include <MicroDebug.h>
+#include <algorithm>
 
 #include "MongooseCore.h"
 #include "MongooseHttpServer.h"
