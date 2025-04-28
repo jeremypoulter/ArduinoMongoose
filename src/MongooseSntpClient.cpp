@@ -14,9 +14,8 @@
 #if MG_ENABLE_SNTP
 
 MongooseSntpClient::MongooseSntpClient() :
-  _nc(NULL),
-  _onTime(NULL),
-  _onError(NULL)
+  MongooseSocket(),
+  _onTime(NULL)
 {
 
 }
@@ -26,35 +25,26 @@ MongooseSntpClient::~MongooseSntpClient()
 
 }
 
-void MongooseSntpClient::eventHandler(struct mg_connection *nc, int ev, void *p, void *u)
+void MongooseSntpClient::onResolve(mg_connection *nc)
 {
-  MongooseSntpClient *self = (MongooseSntpClient *)u;
-  self->eventHandler(nc, ev, p);
+  DBUGF("Got address, sending request");
+  mg_sntp_request(nc);
 }
 
-void MongooseSntpClient::eventHandler(struct mg_connection *nc, int ev, void *p)
+void MongooseSntpClient::handleEvent(mg_connection *nc, int ev, void *p)
 {
-  struct mg_sntp_message *msg = (struct mg_sntp_message *) p;
-
-  if (ev != MG_EV_POLL) { DBUGF("%s %p: %d", __PRETTY_FUNCTION__, nc, ev); }
-
   switch (ev) 
   {
-    case MG_SNTP_REPLY:
-      if(_onTime) {
-        _onTime(msg->tv);
+    case MG_EV_SNTP_TIME:
+    {
+      if(_onTime) 
+      {
+        uint64_t time_ms = *((uint64_t *)p);
+        struct timeval time;
+        time.tv_sec = time_ms / 1000;
+        time.tv_usec = (time_ms % 1000) * 1000;
+        _onTime(time);
       }
-      break;
-
-    case MG_SNTP_FAILED:
-      if(_onError) {
-        _onError(-1);
-      }
-      break;
-
-    case MG_EV_CLOSE: {
-      DBUGF("Connection %p closed", nc);
-      _nc = NULL;
       break;
     }
   }
@@ -62,13 +52,17 @@ void MongooseSntpClient::eventHandler(struct mg_connection *nc, int ev, void *p)
 
 bool MongooseSntpClient::getTime(const char *server, MongooseSntpTimeHandler onTime)
 {
-  if(NULL == _nc) 
+  if(!connected()) 
   {
     DBUGF("Trying to connect to %s", server);
     _onTime = onTime;
 
-    _nc = mg_sntp_get_time(Mongoose.getMgr(), eventHandler, server, this);
-    if(_nc) {
+    char url[128];
+    snprintf(url, sizeof(url), "udp://%s:123", server);
+
+    if(MongooseSocket::connect(
+      mg_sntp_connect(Mongoose.getMgr(), url, eventHandler , this))) 
+    {
       return true;
     }
 

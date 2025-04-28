@@ -4,8 +4,6 @@
 
 #ifdef ARDUINO
 #include <Arduino.h>
-#else
-#define utoa(i, buf, base) sprintf(buf, "%u", i)
 #endif
 
 #include <MicroDebug.h>
@@ -23,151 +21,163 @@ MongooseHttpClient::~MongooseHttpClient()
 
 }
 
-void MongooseHttpClient::eventHandler(struct mg_connection *nc, int ev, void *p, void *u)
-{
-  MongooseHttpClientRequest *request = (MongooseHttpClientRequest *)u;
-  request->_client ->eventHandler(nc, request, ev, p);
-}
-
-void MongooseHttpClient::eventHandler(struct mg_connection *nc, MongooseHttpClientRequest *request, int ev, void *p)
-{
-  if (ev != MG_EV_POLL) { DBUGF("%s %p: %d", __PRETTY_FUNCTION__, nc, ev); }
-
-  switch (ev)
-  {
-    case MG_EV_CONNECT: {
-      int connect_status = *(int *)p;
-      DBUGVAR(connect_status);
-      if(0 != connect_status) {
-        DBUGF("connect() error: %s\n", strerror(connect_status));
-      }
-      break;
-    }
-
-    case MG_EV_RECV: {
-      int num_bytes = *(int *)p;
-      DBUGF("MG_EV_RECV, bytes = %d", num_bytes);
-      //struct mbuf &io = nc->recv_mbuf;
-      //DBUGF("Buffer %p, len %d: \n%.*s", io.buf, io.len, io.len, io.buf);
-      break;
-    }
-
-    case MG_EV_SEND: {
-      int num_bytes = *(int *)p;
-      DBUGF("MG_EV_SEND, bytes = %d", num_bytes);
-      break;
-    }
-
-    case MG_EV_HTTP_CHUNK:
-    case MG_EV_HTTP_REPLY:
-    {
-      char addr[32];
-      struct http_message *hm = (struct http_message *) p;
-      mg_sock_addr_to_str(&nc->sa, addr, sizeof(addr),
-                          MG_SOCK_STRINGIFY_IP | MG_SOCK_STRINGIFY_PORT);
-      DBUGF("HTTP %s from %s, body %zu @ %p",
-        MG_EV_HTTP_REPLY == ev ? "reply" : "chunk",
-        addr, hm->body.len, hm->body.p);
-
-      MongooseHttpClientResponse response(hm);
-      if(MG_EV_HTTP_CHUNK == ev)
-      {
-        if(request->_onBody) {
-          request->_onBody(&response);
-          nc->flags |= MG_F_DELETE_CHUNK;
-        }
-      } else {
-        if(request->_onResponse) {
-          request->_onResponse(&response);
-        }
-        nc->flags |= MG_F_CLOSE_IMMEDIATELY;
-      }
-
-      break;
-    }
-
-    case MG_EV_CLOSE: {
-      DBUGF("Connection %p closed", nc);
-      if(request->_onClose) {
-        request->_onClose();
-      }
-      delete request;
-      break;
-    }
-  }
-}
-
-void MongooseHttpClient::get(const char *uri, MongooseHttpResponseHandler onResponse, MongooseHttpCloseHandler onClose)
+bool MongooseHttpClient::get(const char *uri, MongooseHttpResponseHandler onResponse, MongooseSocketCloseHandler onClose)
 {
   MongooseHttpClientRequest *request = beginRequest(uri);
   request->setMethod(HTTP_GET);
-  if(NULL != onResponse) {
+  if(nullptr != onResponse) {
     request->onResponse(onResponse);
   }
-  if(NULL != onClose) {
+  if(nullptr != onClose) {
     request->onClose(onClose);
   }
-  send(request);
+  return request->send();
 }
 
-void MongooseHttpClient::post(const char* uri, const char *contentType, const char *body, MongooseHttpResponseHandler onResponse, MongooseHttpCloseHandler onClose)
+bool MongooseHttpClient::post(const char* uri, const char *contentType, const char *body, MongooseHttpResponseHandler onResponse, MongooseSocketCloseHandler onClose)
 {
   MongooseHttpClientRequest *request = beginRequest(uri);
   request->setMethod(HTTP_POST);
   request->setContentType(contentType);
   request->setContent(body);
-  if(NULL != onResponse) {
+  if(nullptr != onResponse) {
     request->onResponse(onResponse);
   }
-  if(NULL != onClose) {
+  if(nullptr != onClose) {
     request->onClose(onClose);
   }
-  send(request);
+  return request->send();
+}
+
+bool MongooseHttpClient::put(const char* uri, const char *contentType, const char *body, MongooseHttpResponseHandler onResponse, MongooseSocketCloseHandler onClose)
+{
+  MongooseHttpClientRequest *request = beginRequest(uri);
+  request->setMethod(HTTP_PUT);
+  request->setContentType(contentType);
+  request->setContent(body);
+  if(nullptr != onResponse) {
+    request->onResponse(onResponse);
+  }
+  if(nullptr != onClose) {
+    request->onClose(onClose);
+  }
+  return request->send();
 }
 
 MongooseHttpClientRequest *MongooseHttpClient::beginRequest(const char *uri)
 {
-  return new MongooseHttpClientRequest(this, uri);
+  return new MongooseHttpClientRequest(uri);
 }
 
-void MongooseHttpClient::send(MongooseHttpClientRequest *request)
-{
-  struct mg_connect_opts opts;
-  Mongoose.getDefaultOpts(&opts);
-
-  const char *err;
-  opts.error_string = &err;
-
-  mg_connection *nc = mg_connect_http_opt(Mongoose.getMgr(), eventHandler, request, opts, request->_uri, request->_extraHeaders, (const char *)request->_body);
-  if(nc) {
-    request->_nc = nc;
-  } else {
-    DBUGF("Failed to connect to %s: %s", request->_uri, err);
-  }
-}
-
-MongooseHttpClientRequest::MongooseHttpClientRequest(MongooseHttpClient *client, const char *uri) :
-  _client(client),
-  _onResponse(NULL),
-  _onBody(NULL),
-  _onClose(NULL),
+MongooseHttpClientRequest::MongooseHttpClientRequest(const char *uri) :
+  MongooseSocket(),
+  _onResponse(nullptr),
+  _onBody(nullptr),
   _uri(uri),
   _method(HTTP_GET),
-  _contentType("application/x-www-form-urlencoded"),
+  _contentType(nullptr),
   _contentLength(-1),
-  _body(NULL),
-  _extraHeaders(NULL)
+  _body(nullptr),
+  _extraHeaders(nullptr)
 {
 
 }
-
 
 MongooseHttpClientRequest::~MongooseHttpClientRequest()
 {
   if (_extraHeaders) {
     free(_extraHeaders);
-    _extraHeaders = NULL;
+    _extraHeaders = nullptr;
   }
+}
+
+void MongooseHttpClientRequest::handleEvent(mg_connection *nc, int ev, void *p)
+{
+  switch (ev)
+  {
+    case MG_EV_HTTP_MSG:
+    {
+      char addr[32];
+      struct mg_http_message *hm = (struct mg_http_message *) p;
+      mg_snprintf(addr, sizeof(addr), "%M", mg_print_ip_port, &nc->rem);
+      DBUGF("HTTP message from %s, body %zu @ %p",
+        addr, hm->body.len, hm->body.buf);
+
+      MongooseHttpClientResponse response(hm);
+      if(_onResponse) {
+        _onResponse(&response);
+      }
+
+      break;
+    }
+  }
+}
+
+void MongooseHttpClientRequest::onOpen(mg_connection *nc)
+{
+  _timeout_ms = mg_millis() + MOGOOSE_HTTP_CLIENT_TIMEOUT;
+}
+
+void MongooseHttpClientRequest::onPoll(mg_connection *nc)
+{
+  if (mg_millis() > _timeout_ms &&
+      (nc->is_connecting || nc->is_resolving)) {
+    mg_error(nc, "Connect timeout");
+  }
+}
+
+void MongooseHttpClientRequest::onConnect(mg_connection *nc)
+{
+  MongooseSocket::onConnect(nc);
+
+  struct mg_str host = mg_url_host(_uri);
+  // Send request
+  mg_printf(nc,
+            "%s %s HTTP/1.1\r\n"
+            "Host: %.*s\r\n"
+            "Connection: close\r\n"
+            "Content-Length: %lld\r\n"
+            "%s%s%s"
+            "%s"
+            "\r\n",
+            HTTP_POST == _method ? "POST" : 
+            HTTP_DELETE == _method ? "DELETE" : 
+            HTTP_PUT == _method ? "PUT" : 
+            HTTP_PATCH == _method ? "PATCH" : 
+            HTTP_HEAD == _method ? "HEAD" : 
+            HTTP_OPTIONS == _method ? "OPTIONS" : "GET", 
+            mg_url_uri(_uri), (int) host.len,
+            host.buf, _contentLength > 0 ? _contentLength : 0,
+            _contentType ? "Content-Type: " : "", 
+            _contentType ? _contentType : "",
+            _contentType ? "\r\n" : "",
+            _extraHeaders ? _extraHeaders : "");
+  if(_body) {
+    mg_send(nc, _body, _contentLength);
+  }
+}
+
+void MongooseHttpClientRequest::onClose(mg_connection *nc)
+{
+  MongooseSocket::onClose(nc);
+  delete this;
+}
+
+bool MongooseHttpClientRequest::send()
+{
+  if(mg_url_is_ssl(_uri)) {
+    setSecure(mg_url_host(_uri));
+  }
+
+  if(MongooseSocket::connect(
+    mg_http_connect(Mongoose.getMgr(), _uri, MongooseSocket::eventHandler, this)))
+  {
+    return true;
+  } else {
+    DBUGF("Failed to connect to %s", _uri);
+  }
+
+  return false;
 }
 
 MongooseHttpClientRequest *MongooseHttpClientRequest::setContent(const uint8_t *content, size_t len)
@@ -196,16 +206,9 @@ bool MongooseHttpClientRequest::addHeader(const char *name, size_t nameLength, c
   return false;
 }
 
-void MongooseHttpClientRequest::abort()
-{
-  if (_nc) {
-    _nc->flags |= MG_F_CLOSE_IMMEDIATELY;
-  }
-}
-
 size_t MongooseHttpClientResponse::contentLength() {
   MongooseString content_length = headers("Content-Length");
-  if(content_length != NULL) {
+  if(content_length != nullptr) {
     return atoll(content_length.c_str());
   }
   return _msg->body.len;
