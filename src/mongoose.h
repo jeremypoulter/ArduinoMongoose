@@ -6215,9 +6215,6 @@ struct mg_connection *mg_sntp_connect(struct mg_mgr *mgr,
                                             void *user_data),
                                       const char *sntp_server_name);
 
-#ifdef __cplusplus
-}
-#endif /* __cplusplus */
 
 
 /* Sends time request to given connection */
@@ -6232,8 +6229,11 @@ void mg_sntp_send_request(struct mg_connection *c);
  */
 struct mg_connection *mg_sntp_get_time(struct mg_mgr *mgr,
                                        mg_event_handler_t event_handler,
-                                       const char *sntp_server_name);
+                                       const char *sntp_server_name MG_UD_ARG(void *user_data));
 
+#ifdef __cplusplus
+}
+#endif /* __cplusplus */
 #endif
 
 #endif /* CS_MONGOOSE_SRC_SNTP_H_ */
