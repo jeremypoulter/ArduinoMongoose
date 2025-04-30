@@ -50,6 +50,7 @@ class MongooseHttpServerRequest {
     bool _responseSent;
 
     void sendBody();
+    bool bodyAllowed(int code);
 
 #if MG_COPY_HTTP_MESSAGE
     http_message *duplicateMessage(http_message *);
