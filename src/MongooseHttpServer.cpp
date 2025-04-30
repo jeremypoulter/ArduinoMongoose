@@ -429,9 +429,22 @@ void MongooseHttpServerRequest::sendBody()
 
 extern "C" const char *mg_status_message(int status_code);
 
+bool MongooseHttpServerRequest::bodyAllowed(int code)
+{
+  if(code >= 100 && code < 200) {
+    return false;
+  }
+  return !(code == 204 || code == 304);
+}
+
 void MongooseHttpServerRequest::send(int code)
 {
-  send(code, "text/plain", mg_status_message(code));
+  if (bodyAllowed(code)) {
+    send(code, "text/plain", mg_status_message(code));
+  } else {
+    send(code, "text/plain", "");
+  }
+
 }
 
 void MongooseHttpServerRequest::send(int code, const char *contentType, const char *content)
