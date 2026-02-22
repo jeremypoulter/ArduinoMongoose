@@ -287,7 +287,7 @@ void MongooseWebSocketClient::attemptReconnect()
   
   // Compute exponential backoff safely without undefined shifts or overflow,
   // respecting the 60s cap.
-  unsigned long baseInterval = _reconnectInterval ? _reconnectInterval : 1UL;
+  unsigned long baseInterval = _reconnectInterval ? _reconnectInterval : 1000UL;  // Default to 1s if not set
   unsigned long maxBackoff   = 60000UL;
   unsigned long maxFactor    = maxBackoff / baseInterval;
   if (maxFactor == 0) {
