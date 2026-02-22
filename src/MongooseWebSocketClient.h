@@ -3,6 +3,7 @@
 
 #ifdef ARDUINO
 #include "Arduino.h"
+#include <IPAddress.h>
 #endif
 
 #include <mongoose.h>
