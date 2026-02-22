@@ -8,7 +8,7 @@
  * Since we're in a tight polling loop anyway (see below), we don't need to do
  * anything.
  */
-void mg_lwip_mgr_schedule_poll(struct mg_mgr *mgr) {
+extern "C" void mg_lwip_mgr_schedule_poll(struct mg_mgr *mgr) {
 }
 
 #endif
