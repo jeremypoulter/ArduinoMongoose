@@ -26,6 +26,7 @@
 
 MongooseWebSocketClient wsClient;
 
+// Replace with your WiFi credentials
 const char *ssid = "wifi";
 const char *password = "password";
 
