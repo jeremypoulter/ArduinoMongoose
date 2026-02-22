@@ -68,7 +68,9 @@ void setup()
 
   wsClient.setReceiveTXTcallback([](int flags, const uint8_t *data, size_t len) {
     // Print received message (properly handle non-null-terminated data)
-    // Use a fixed buffer to avoid VLA issues, truncate if message is too large
+    // Use a fixed buffer (512 bytes - reasonable for typical WebSocket messages
+    // in embedded systems) to avoid VLA issues and prevent stack overflow.
+    // Messages larger than this will be truncated for display.
     const size_t maxLen = 512;
     char buffer[maxLen + 1];
     size_t copyLen = len > maxLen ? maxLen : len;
