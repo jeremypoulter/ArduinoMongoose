@@ -9,8 +9,6 @@
 #include <mongoose.h>
 #include <functional>
 
-#include "MongooseString.h"
-
 // Forward declarations
 class MongooseWebSocketClient;
 
@@ -151,8 +149,19 @@ class MongooseWebSocketClient
     /**
      * @brief Register callback for incoming messages
      * Called for TEXT and BINARY frames (auto-defragmented by mongoose)
+     * 
+     * Note: Despite the name, this callback is invoked for both TEXT and
+     * BINARY frames. The flags parameter can be used to distinguish frame types.
      */
     void setReceiveTXTcallback(MongooseWebSocketMessageHandler handler) {
+      _onMessage = handler;
+    }
+    
+    /**
+     * @brief Register callback for incoming messages (preferred name)
+     * Called for TEXT and BINARY frames (auto-defragmented by mongoose)
+     */
+    void setOnMessage(MongooseWebSocketMessageHandler handler) {
       _onMessage = handler;
     }
     

@@ -104,18 +104,17 @@ void MongooseWebSocketClient::disconnect()
       mg_ws_send(_nc, nullptr, 0, WEBSOCKET_OP_CLOSE);
     #endif
     
-    // Mark connection for closing (mongoose will clean up)
-    _nc->flags |= MG_F_CLOSE_IMMEDIATELY;
-    _nc = nullptr;
+    // Request a graceful close: send pending data (including CLOSE) then close
+    _nc->flags |= MG_F_SEND_AND_CLOSE;
+    
+    // Keep _nc set until MG_EV_CLOSE arrives
   }
-  
-  _state = State::DISCONNECTED;
 }
 
 void MongooseWebSocketClient::loop()
 {
-  // Handle reconnection if disconnected
-  if (_state == State::DISCONNECTED && _url && _reconnectInterval > 0) {
+  // Handle reconnection if disconnected or in error state
+  if ((_state == State::DISCONNECTED || _state == State::ERROR) && _url && _reconnectInterval > 0) {
     attemptReconnect();
   }
   
@@ -166,6 +165,13 @@ void MongooseWebSocketClient::eventHandler(struct mg_connection *nc, int ev, voi
 
 void MongooseWebSocketClient::handleEvent(struct mg_connection *nc, int ev, void *ev_data)
 {
+  // Only process events for the currently-active connection.
+  // This avoids stale connections (e.g. from a previous reconnect attempt)
+  // from overwriting the state of the new connection.
+  if (_nc && nc != _nc) {
+    return;
+  }
+  
   switch (ev) {
     case MG_EV_CONNECT: {
       // TCP connection established (or failed)
@@ -235,8 +241,15 @@ void MongooseWebSocketClient::handleEvent(struct mg_connection *nc, int ev, void
     }
     
     case MG_EV_CLOSE: {
-      // Connection closed (clean or error)
-      int code = 1000;  // Normal closure
+      // Connection closed (clean or error).
+      //
+      // NOTE: We currently do NOT propagate the actual WebSocket close code
+      // or reason from the CLOSE control frame or underlying transport.
+      // Instead, we always report a generic "normal closure" (1000,
+      // "Connection closed") to the onClose callback. Callers MUST NOT rely
+      // on these values to distinguish between normal, error, or
+      // peer-initiated disconnects.
+      int code = 1000;  // Generic "normal" closure code, not protocol-accurate
       const char *reason = "Connection closed";
       
       if (_onClose) {
@@ -265,15 +278,28 @@ void MongooseWebSocketClient::cleanupConnection()
 
 void MongooseWebSocketClient::attemptReconnect()
 {
-  if (!_url || _state != State::DISCONNECTED) {
+  if (!_url || (_state != State::DISCONNECTED && _state != State::ERROR)) {
     return;
   }
   
   // Check reconnection backoff
   unsigned long now = get_millis();
-  unsigned long backoffDelay = _reconnectInterval * (1 << _reconnectAttemptCount);
-  if (backoffDelay > 60000) {
-    backoffDelay = 60000;  // Cap at 60 seconds
+  
+  // Compute exponential backoff safely without undefined shifts or overflow,
+  // respecting the 60s cap.
+  unsigned long baseInterval = _reconnectInterval ? _reconnectInterval : 1UL;
+  unsigned long maxBackoff   = 60000UL;
+  unsigned long maxFactor    = maxBackoff / baseInterval;
+  if (maxFactor == 0) {
+    maxFactor = 1UL;
+  }
+  unsigned long factor = 1UL;
+  for (unsigned int i = 0; i < _reconnectAttemptCount && factor < maxFactor; ++i) {
+    factor <<= 1;
+  }
+  unsigned long backoffDelay = baseInterval * factor;
+  if (backoffDelay > maxBackoff) {
+    backoffDelay = maxBackoff;  // Cap at 60 seconds
   }
   
   if (_lastReconnectAttempt > 0 && (now - _lastReconnectAttempt) < backoffDelay) {
@@ -287,28 +313,18 @@ void MongooseWebSocketClient::attemptReconnect()
   struct mg_connect_opts opts;
   Mongoose.getDefaultOpts(&opts);
   
-  // Mongoose v6.14 API: mg_connect_ws_opt
+  // Mongoose v6.14 API: mg_connect_ws_opt (only supported version)
   #if MO_MG_VERSION_614
     _nc = mg_connect_ws_opt(_mgr, eventHandler, this, opts, _url, _protocol, _extraHeaders);
   #else
-    // Mongoose v7.x API: mg_ws_connect with formatted headers
-    if (_protocol && _extraHeaders) {
-      char headers[512];
-      snprintf(headers, sizeof(headers), "Sec-WebSocket-Protocol: %s\r\n%s", _protocol, _extraHeaders);
-      _nc = mg_ws_connect(_mgr, _url, eventHandler, this, "%s", headers);
-    } else if (_protocol) {
-      _nc = mg_ws_connect(_mgr, _url, eventHandler, this, "Sec-WebSocket-Protocol: %s\r\n", _protocol);
-    } else if (_extraHeaders) {
-      _nc = mg_ws_connect(_mgr, _url, eventHandler, this, "%s", _extraHeaders);
-    } else {
-      _nc = mg_ws_connect(_mgr, _url, eventHandler, this, nullptr);
-    }
+    #error "Only Mongoose v6.14+ API is supported. Please define MO_MG_VERSION_614=1"
   #endif
   
   if (_nc) {
     _state = State::CONNECTING;
   } else {
-    _state = State::ERROR;
+    // Synchronous connect failure: go back to DISCONNECTED so loop() can retry with backoff
+    _state = State::DISCONNECTED;
   }
 }
 
