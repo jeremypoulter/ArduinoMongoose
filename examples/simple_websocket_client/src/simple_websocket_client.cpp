@@ -68,11 +68,18 @@ void setup()
 
   wsClient.setReceiveTXTcallback([](int flags, const uint8_t *data, size_t len) {
     // Print received message (properly handle non-null-terminated data)
-    char buffer[len + 1];
-    memcpy(buffer, data, len);
-    buffer[len] = '\0';
+    // Use a fixed buffer to avoid VLA issues, truncate if message is too large
+    const size_t maxLen = 512;
+    char buffer[maxLen + 1];
+    size_t copyLen = len > maxLen ? maxLen : len;
+    memcpy(buffer, data, copyLen);
+    buffer[copyLen] = '\0';
     String message = String(buffer);
-    DBUGF("Received: %s", message.c_str());
+    if (len > maxLen) {
+      DBUGF("Received (truncated): %s...", message.c_str());
+    } else {
+      DBUGF("Received: %s", message.c_str());
+    }
   });
 
   wsClient.setOnClose([](int code, const char *reason) {
