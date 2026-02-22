@@ -38,3 +38,4 @@ Visual\ Micro
 .vscode/.browse.c_cpp.db*
 .vscode/ipch
 examples/*/lib/*
+_codeql_detected_source_root
