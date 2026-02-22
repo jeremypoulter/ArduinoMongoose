@@ -10,6 +10,17 @@
   #define MO_MG_VERSION_614 1
 #endif
 
+// Time helper: get current time in milliseconds
+// On Arduino: use millis()
+// On native: use mg_time() converted to milliseconds
+static inline unsigned long get_millis() {
+#ifdef ARDUINO
+  return millis();
+#else
+  return (unsigned long)(mg_time() * 1000.0);
+#endif
+}
+
 MongooseWebSocketClient::MongooseWebSocketClient() :
   _mgr(Mongoose.getMgr()),
   _nc(nullptr),
@@ -110,7 +121,7 @@ void MongooseWebSocketClient::loop()
   
   // Handle heartbeat (PING)
   if (_state == State::CONNECTED && _pingInterval > 0) {
-    unsigned long now = millis();
+    unsigned long now = get_millis();
     if (now - _lastPing >= _pingInterval) {
       sendPing();
     }
@@ -175,7 +186,7 @@ void MongooseWebSocketClient::handleEvent(struct mg_connection *nc, int ev, void
       
       if (hm && hm->resp_code == 101) {
         _state = State::CONNECTED;
-        _lastConnected = millis();
+        _lastConnected = get_millis();
         _lastRecv = _lastConnected;
         _lastPing = _lastConnected;
         _reconnectAttemptCount = 0;  // Reset backoff on success
@@ -195,7 +206,7 @@ void MongooseWebSocketClient::handleEvent(struct mg_connection *nc, int ev, void
       // Incoming WebSocket frame (auto-defragmented by mongoose)
       struct websocket_message *wm = (struct websocket_message *)ev_data;
       
-      _lastRecv = millis();
+      _lastRecv = get_millis();
       
       if (_onMessage && wm) {
         _onMessage(wm->flags, (const uint8_t *)wm->data, wm->size);
@@ -207,7 +218,7 @@ void MongooseWebSocketClient::handleEvent(struct mg_connection *nc, int ev, void
       // Control frame (PING, PONG, CLOSE)
       struct websocket_message *wm = (struct websocket_message *)ev_data;
       
-      _lastRecv = millis();
+      _lastRecv = get_millis();
       
       if (wm) {
         uint8_t opcode = wm->flags & 0x0F;
@@ -259,7 +270,7 @@ void MongooseWebSocketClient::attemptReconnect()
   }
   
   // Check reconnection backoff
-  unsigned long now = millis();
+  unsigned long now = get_millis();
   unsigned long backoffDelay = _reconnectInterval * (1 << _reconnectAttemptCount);
   if (backoffDelay > 60000) {
     backoffDelay = 60000;  // Cap at 60 seconds
@@ -310,7 +321,7 @@ void MongooseWebSocketClient::sendPing()
       mg_ws_send(_nc, nullptr, 0, WEBSOCKET_OP_PING);
     #endif
     
-    _lastPing = millis();
+    _lastPing = get_millis();
   }
 }
 
@@ -320,6 +331,6 @@ bool MongooseWebSocketClient::isStale()
     return false;  // Stale detection disabled
   }
   
-  unsigned long now = millis();
+  unsigned long now = get_millis();
   return (now - _lastRecv) > _staleTimeout;
 }
