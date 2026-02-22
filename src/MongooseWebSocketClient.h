@@ -59,7 +59,7 @@ class MongooseWebSocketClient
       CONNECTING,
       CONNECTED,
       CLOSING,
-      ERROR
+      ERROR_STATE
     };
     State _state;
     

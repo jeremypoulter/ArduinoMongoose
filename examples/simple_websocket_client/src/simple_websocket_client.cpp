@@ -68,7 +68,10 @@ void setup()
 
   wsClient.setReceiveTXTcallback([](int flags, const uint8_t *data, size_t len) {
     // Print received message (properly handle non-null-terminated data)
-    String message = String((const char *)data, len);
+    char buffer[len + 1];
+    memcpy(buffer, data, len);
+    buffer[len] = '\0';
+    String message = String(buffer);
     DBUGF("Received: %s", message.c_str());
   });
 
