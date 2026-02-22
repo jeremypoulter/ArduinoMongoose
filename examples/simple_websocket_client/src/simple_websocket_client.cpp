@@ -67,8 +67,8 @@ void setup()
   });
 
   wsClient.setReceiveTXTcallback([](int flags, const uint8_t *data, size_t len) {
-    // Print received message
-    String message = String((char*)data).substring(0, len);
+    // Print received message (properly handle non-null-terminated data)
+    String message = String((const char *)data, len);
     DBUGF("Received: %s", message.c_str());
   });
 
