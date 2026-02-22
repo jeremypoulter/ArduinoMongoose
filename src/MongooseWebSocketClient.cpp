@@ -114,7 +114,7 @@ void MongooseWebSocketClient::disconnect()
 void MongooseWebSocketClient::loop()
 {
   // Handle reconnection if disconnected or in error state
-  if ((_state == State::DISCONNECTED || _state == State::ERROR) && _url && _reconnectInterval > 0) {
+  if ((_state == State::DISCONNECTED || _state == State::ERROR_STATE) && _url && _reconnectInterval > 0) {
     attemptReconnect();
   }
   
@@ -178,7 +178,7 @@ void MongooseWebSocketClient::handleEvent(struct mg_connection *nc, int ev, void
       int status = *(int *)ev_data;
       if (status != 0) {
         // Connection failed
-        _state = State::ERROR;
+        _state = State::ERROR_STATE;
         cleanupConnection();
       } else {
         _state = State::CONNECTING;
@@ -202,7 +202,7 @@ void MongooseWebSocketClient::handleEvent(struct mg_connection *nc, int ev, void
         }
       } else {
         // Handshake failed (non-101 response)
-        _state = State::ERROR;
+        _state = State::ERROR_STATE;
         cleanupConnection();
       }
       break;
@@ -278,7 +278,7 @@ void MongooseWebSocketClient::cleanupConnection()
 
 void MongooseWebSocketClient::attemptReconnect()
 {
-  if (!_url || (_state != State::DISCONNECTED && _state != State::ERROR)) {
+  if (!_url || (_state != State::DISCONNECTED && _state != State::ERROR_STATE)) {
     return;
   }
   
