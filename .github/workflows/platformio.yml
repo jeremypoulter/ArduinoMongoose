@@ -43,6 +43,12 @@ jobs:
           board: esp-wrover-kit
         - example: simple_mqtt_client
           board: esp-wrover-kit-secure
+        - example: simple_websocket_client
+          board: huzzah
+        - example: simple_websocket_client
+          board: esp-wrover-kit
+        - example: simple_websocket_client_native
+          board: native
         - example: websocket_chat
           board: huzzah
         - example: websocket_chat
