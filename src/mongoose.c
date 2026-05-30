@@ -5147,11 +5147,16 @@ enum mg_ssl_if_result mg_ssl_if_handshake(struct mg_connection *nc) {
    */
 #if MBEDTLS_VERSION_NUMBER >= 0x03000000
   /*
-   * In mbedTLS 3.x the session and its peer_cert are no longer reachable
-   * (the field was removed from the public mbedtls_ssl_session); the peer
-   * certificate is freed by the library itself once the handshake completes.
-   * Likewise conf->key_cert is an internal list with no public accessor, so
-   * we leave the owned key/cert in place to be freed at context teardown.
+   * In mbedTLS 3.x peer_cert is a MBEDTLS_PRIVATE field (still accessible
+   * when ESP-IDF defines MBEDTLS_ALLOW_PRIVATE_ACCESS), but the real reason
+   * to skip the manual free below is ownership: the library itself frees
+   * peer_cert at session / config teardown, so freeing it here would risk a
+   * double-free.  Likewise conf->key_cert is an internal list owned by the
+   * library, so we leave the key/cert in place to be freed at teardown.
+   *
+   * Because we no longer do this early free, the "effectively disables
+   * renegotiation" side-effect (see 2.x comment above) does not apply on
+   * 3.x — which is fine: renegotiation is disabled by default in mbedTLS 3.6.
    */
   /* On a client connection we can still drop the CA chain. */
   if (nc->listener == NULL) {
@@ -5275,7 +5280,11 @@ static enum mg_ssl_if_result mg_use_cert(struct mg_ssl_if_ctx *ctx,
   if (mbedtls_pk_parse_key(ctx->key, (uint8_t *)key, strlen(key) + 1, NULL, 0
 #if MBEDTLS_VERSION_NUMBER >= 0x03000000
                            /* 3.x added an RNG used for blinding during the
-                            * private-key parse / key-pair check. */
+                            * private-key parse / key-pair check.
+                            * Passing NULL as p_rng is safe here because
+                            * mg_ssl_if_mbed_random ignores its ctx argument;
+                            * revisit if that callback is ever replaced with
+                            * one that dereferences ctx. */
                            , mg_ssl_if_mbed_random, NULL
 #endif
                            ) != 0) {
