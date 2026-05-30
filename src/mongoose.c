@@ -4881,7 +4881,7 @@ const char *mg_set_ssl(struct mg_connection *nc, const char *cert,
 
 #include <mbedtls/debug.h>
 #include <mbedtls/ecp.h>
-#include <mbedtls/net.h>
+#include <mbedtls/net_sockets.h>
 #include <mbedtls/platform.h>
 #include <mbedtls/ssl.h>
 #include <mbedtls/ssl_internal.h>
