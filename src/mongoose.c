@@ -4879,14 +4879,19 @@ const char *mg_set_ssl(struct mg_connection *nc, const char *cert,
 
 #if MG_ENABLE_SSL && MG_SSL_IF == MG_SSL_IF_MBEDTLS
 
+#include <mbedtls/version.h>
 #include <mbedtls/debug.h>
 #include <mbedtls/ecp.h>
 #include <mbedtls/net_sockets.h>
 #include <mbedtls/platform.h>
 #include <mbedtls/ssl.h>
+#if MBEDTLS_VERSION_NUMBER < 0x03000000
+/* ssl_internal.h was removed in mbedTLS 3.x; the structs it exposed are now
+ * part of the public ssl.h (private fields reachable via
+ * MBEDTLS_ALLOW_PRIVATE_ACCESS, which ESP-IDF defines). */
 #include <mbedtls/ssl_internal.h>
+#endif
 #include <mbedtls/x509_crt.h>
-#include <mbedtls/version.h>
 #include <mbedtls/error.h>
 
 static void mg_ssl_mbed_log(void *ctx, int level, const char *file, int line,
