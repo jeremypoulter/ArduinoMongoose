@@ -4994,8 +4994,12 @@ enum mg_ssl_if_result mg_ssl_if_conn_init(
   }
 
   /* TLS 1.2 and up */
+#if MBEDTLS_VERSION_NUMBER >= 0x03000000
+  mbedtls_ssl_conf_min_tls_version(ctx->conf, MBEDTLS_SSL_VERSION_TLS1_2);
+#else
   mbedtls_ssl_conf_min_version(ctx->conf, MBEDTLS_SSL_MAJOR_VERSION_3,
                                MBEDTLS_SSL_MINOR_VERSION_3);
+#endif
   mbedtls_ssl_conf_rng(ctx->conf, mg_ssl_if_mbed_random, nc);
 
   if (params->cert != NULL &&
@@ -5123,10 +5127,17 @@ enum mg_ssl_if_result mg_ssl_if_handshake(struct mg_connection *nc) {
   struct mg_ssl_if_ctx *ctx = (struct mg_ssl_if_ctx *) nc->ssl_if_data;
   int err;
   /* If bio is not yet set, do it now. */
+#if MBEDTLS_VERSION_NUMBER >= 0x03000000
+  /* The p_bio field is no longer accessible in mbedTLS 3.x. Setting the bio
+   * callbacks again is idempotent, so just (re)set them on every handshake. */
+  mbedtls_ssl_set_bio(ctx->ssl, nc, mg_ssl_if_mbed_send, mg_ssl_if_mbed_recv,
+                      NULL);
+#else
   if (ctx->ssl->p_bio == NULL) {
     mbedtls_ssl_set_bio(ctx->ssl, nc, mg_ssl_if_mbed_send, mg_ssl_if_mbed_recv,
                         NULL);
   }
+#endif
   err = mbedtls_ssl_handshake(ctx->ssl);
   if (err != 0) return mg_ssl_if_mbed_err(nc, err);
 #ifdef MG_SSL_IF_MBEDTLS_FREE_CERTS
@@ -5134,6 +5145,20 @@ enum mg_ssl_if_result mg_ssl_if_handshake(struct mg_connection *nc) {
    * Free the peer certificate, we don't need it after handshake.
    * Note that this effectively disables renegotiation.
    */
+#if MBEDTLS_VERSION_NUMBER >= 0x03000000
+  /*
+   * In mbedTLS 3.x the session and its peer_cert are no longer reachable
+   * (the field was removed from the public mbedtls_ssl_session); the peer
+   * certificate is freed by the library itself once the handshake completes.
+   * Likewise conf->key_cert is an internal list with no public accessor, so
+   * we leave the owned key/cert in place to be freed at context teardown.
+   */
+  /* On a client connection we can still drop the CA chain. */
+  if (nc->listener == NULL) {
+    mbedtls_ssl_conf_ca_chain(ctx->conf, NULL, NULL);
+    mg_ssl_if_mbed_free_certs_and_keys(ctx);
+  }
+#else
   mbedtls_x509_crt_free(ctx->ssl->session->peer_cert);
   mbedtls_free(ctx->ssl->session->peer_cert);
   ctx->ssl->session->peer_cert = NULL;
@@ -5147,6 +5172,7 @@ enum mg_ssl_if_result mg_ssl_if_handshake(struct mg_connection *nc) {
     mbedtls_ssl_conf_ca_chain(ctx->conf, NULL, NULL);
     mg_ssl_if_mbed_free_certs_and_keys(ctx);
   }
+#endif
 #endif
   return MG_SSL_OK;
 }
@@ -5246,7 +5272,13 @@ static enum mg_ssl_if_result mg_use_cert(struct mg_ssl_if_ctx *ctx,
     MG_SET_PTRPTR(err_msg, "Invalid SSL cert");
     return MG_SSL_ERROR;
   }
-  if (mbedtls_pk_parse_key(ctx->key, (uint8_t *)key, strlen(key) + 1, NULL, 0) != 0) {
+  if (mbedtls_pk_parse_key(ctx->key, (uint8_t *)key, strlen(key) + 1, NULL, 0
+#if MBEDTLS_VERSION_NUMBER >= 0x03000000
+                           /* 3.x added an RNG used for blinding during the
+                            * private-key parse / key-pair check. */
+                           , mg_ssl_if_mbed_random, NULL
+#endif
+                           ) != 0) {
     MG_SET_PTRPTR(err_msg, "Invalid SSL key");
     return MG_SSL_ERROR;
   }
