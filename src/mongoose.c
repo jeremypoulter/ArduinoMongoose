@@ -2382,6 +2382,14 @@ void mg_destroy_conn(struct mg_connection *conn, int destroy_if) {
 #endif
   mbuf_free(&conn->recv_mbuf);
   mbuf_free(&conn->send_mbuf);
+#if MG_ENABLE_IPV6
+  /* Free the hostname stashed by mg_connect_opt for AAAA->A fallback.
+   * Without this, every successful AAAA resolve leaks the strdup'd host. */
+  if (conn->priv_1.v != NULL) {
+    MG_FREE(conn->priv_1.v);
+    conn->priv_1.v = NULL;
+  }
+#endif
 
   memset(conn, 0, sizeof(*conn));
   MG_FREE(conn);
@@ -2663,7 +2671,7 @@ MG_INTERNAL int mg_parse_address(const char *str, union socket_address *sa,
              inet_pton(AF_INET6, buf, &sa->sin6.sin6_addr)) {
     /* IPv6 address, e.g. [3ffe:2a00:100:7031::1]:8080 */
     sa->sin6.sin6_family = AF_INET6;
-    sa->sin.sin_port = htons((uint16_t) port);
+    sa->sin6.sin6_port = htons((uint16_t) port);
 #endif
 #if MG_ENABLE_ASYNC_RESOLVER
   } else if (strlen(str) < host_len &&
@@ -2691,8 +2699,14 @@ MG_INTERNAL int mg_parse_address(const char *str, union socket_address *sa,
 #endif
   } else if (sscanf(str, ":%u%n", &port, &len) == 1 ||
              sscanf(str, "%u%n", &port, &len) == 1) {
+#if MG_ENABLE_IPV6 && MG_LWIP
+    /* On LwIP, AF_INET6 + V6ONLY=0 = dual-stack listener */
+    sa->sin6.sin6_family = AF_INET6;
+    sa->sin6.sin6_port = htons((uint16_t) port);
+#else
     /* If only port is specified, bind to IPv4, INADDR_ANY */
     sa->sin.sin_port = htons((uint16_t) port);
+#endif
   } else {
     return -1;
   }
@@ -3012,6 +3026,81 @@ MG_INTERNAL struct mg_connection *mg_do_connect(struct mg_connection *nc,
   return nc;
 }
 
+#if MG_ENABLE_IPV6
+/*
+ * IPv6 connect-failure cooldown cache.
+ *
+ * When a TCP connect to a DNS-resolved IPv6 address fails (unreachable
+ * address, blackhole route, broken IPv6 path), record the hostname here.
+ * Subsequent mg_connect_opt() calls for the same host within the TTL skip
+ * the AAAA query and resolve A directly, so application-level retries
+ * (EmonCMS post cycle, OCPP reconnect, etc.) succeed fast over IPv4
+ * instead of re-hitting the ~23s LwIP connect timeout.
+ *
+ * Single-threaded poll loop: no locking needed. ~330 bytes of .bss.
+ * Time-based expiry means a transient IPv6 outage self-heals: after the
+ * TTL one slow IPv6 probe is retried, and if IPv6 recovered it sticks.
+ */
+#define MG_IPV6_FAIL_SLOTS 6
+#define MG_IPV6_FAIL_HOST_LEN 48
+#define MG_IPV6_FAIL_TTL_SECONDS 300.0 /* 5 min, mirrors firmware MQTT cooldown */
+
+struct mg_ipv6_fail_entry {
+  char host[MG_IPV6_FAIL_HOST_LEN];
+  double expiry;
+};
+static struct mg_ipv6_fail_entry s_ipv6_fail[MG_IPV6_FAIL_SLOTS];
+
+static void mg_ipv6_fail_record(const char *host) {
+  double now = mg_time(), oldest = 1e18;
+  int victim = 0, i;
+  for (i = 0; i < MG_IPV6_FAIL_SLOTS; i++) {
+    if (mg_casecmp(s_ipv6_fail[i].host, host) == 0) {
+      victim = i; /* refresh existing entry */
+      break;
+    }
+    if (s_ipv6_fail[i].expiry < oldest) {
+      oldest = s_ipv6_fail[i].expiry;
+      victim = i;
+    }
+  }
+  strncpy(s_ipv6_fail[victim].host, host, MG_IPV6_FAIL_HOST_LEN - 1);
+  s_ipv6_fail[victim].host[MG_IPV6_FAIL_HOST_LEN - 1] = '\0';
+  s_ipv6_fail[victim].expiry = now + MG_IPV6_FAIL_TTL_SECONDS;
+  LOG(LL_DEBUG, ("IPv6 connect failed for %s, cooldown %g s", host,
+                 MG_IPV6_FAIL_TTL_SECONDS));
+}
+
+static int mg_ipv6_fail_active(const char *host) {
+  double now = mg_time();
+  int i;
+  for (i = 0; i < MG_IPV6_FAIL_SLOTS; i++) {
+    if (s_ipv6_fail[i].expiry > now &&
+        mg_casecmp(s_ipv6_fail[i].host, host) == 0) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+/*
+ * Drop any cooldown entry for a host. Called when the forced-IPv4 fallback
+ * also yields no answer — i.e. the host is IPv6-only (no A record). Without
+ * this, one transient IPv6 failure pins an AAAA-only host to IPv4-forced for
+ * the whole TTL, and since it has no A record every attempt dead-ends. Clearing
+ * lets the next attempt retry AAAA instead.
+ */
+static void mg_ipv6_fail_clear(const char *host) {
+  int i;
+  for (i = 0; i < MG_IPV6_FAIL_SLOTS; i++) {
+    if (mg_casecmp(s_ipv6_fail[i].host, host) == 0) {
+      s_ipv6_fail[i].host[0] = '\0';
+      s_ipv6_fail[i].expiry = 0;
+    }
+  }
+}
+#endif /* MG_ENABLE_IPV6 */
+
 void mg_if_connect_cb(struct mg_connection *nc, int err) {
   LOG(LL_DEBUG,
       ("%p %s://%s:%hu -> %d", nc, (nc->flags & MG_F_UDP ? "udp" : "tcp"),
@@ -3019,6 +3108,16 @@ void mg_if_connect_cb(struct mg_connection *nc, int err) {
   nc->flags &= ~MG_F_CONNECTING;
   if (err != 0) {
     nc->flags |= MG_F_CLOSE_IMMEDIATELY;
+#if MG_ENABLE_IPV6
+    /* DNS-resolved IPv6 connect failed: enter cooldown so the next
+     * attempt for this host goes straight to IPv4. priv_1.v is NULL for
+     * IP-literal targets (resolver skipped), so literals are never
+     * recorded. Cache write only — no socket ops, no early return; the
+     * normal close path proceeds untouched. */
+    if (nc->sa.sa.sa_family == AF_INET6 && nc->priv_1.v != NULL) {
+      mg_ipv6_fail_record((const char *) nc->priv_1.v);
+    }
+#endif
   }
 #if MG_ENABLE_SSL
   if (err == 0 && (nc->flags & MG_F_SSL)) {
@@ -3046,22 +3145,72 @@ static void resolve_cb(struct mg_dns_message *msg, void *data,
   nc->flags &= ~MG_F_RESOLVING;
   if (msg != NULL) {
     /*
-     * Take the first DNS A answer and run...
+     * Take the first DNS A or AAAA answer and run...
      */
     for (i = 0; i < msg->num_answers; i++) {
       if (msg->answers[i].rtype == MG_DNS_A_RECORD) {
-        /*
-         * Async resolver guarantees that there is at least one answer.
-         * TODO(lsm): handle IPv6 answers too
-         */
         mg_dns_parse_record_data(msg, &msg->answers[i], &nc->sa.sin.sin_addr,
                                  4);
+        LOG(LL_DEBUG, ("DNS A resolved: %s", inet_ntoa(nc->sa.sin.sin_addr)));
         mg_do_connect(nc, nc->flags & MG_F_UDP ? SOCK_DGRAM : SOCK_STREAM,
                       &nc->sa);
         return;
       }
+#if MG_ENABLE_IPV6
+      if (msg->answers[i].rtype == MG_DNS_AAAA_RECORD) {
+        uint16_t port = nc->sa.sin.sin_port;  /* Preserve port before family change */
+        nc->sa.sin6.sin6_family = AF_INET6;
+        nc->sa.sin6.sin6_port = port;
+        mg_dns_parse_record_data(msg, &msg->answers[i], &nc->sa.sin6.sin6_addr,
+                                 16);
+        {
+          char addr_str[64];
+          inet_ntop(AF_INET6, &nc->sa.sin6.sin6_addr, addr_str, sizeof(addr_str));
+          LOG(LL_DEBUG, ("DNS AAAA resolved: %s", addr_str));
+        }
+        mg_do_connect(nc, nc->flags & MG_F_UDP ? SOCK_DGRAM : SOCK_STREAM,
+                      &nc->sa);
+        return;
+      }
+#endif
     }
   }
+
+#if MG_ENABLE_IPV6
+  /*
+   * AAAA query returned no AAAA answers — fall back to A record query.
+   * This implements AAAA-first, A-fallback DNS resolution.
+   * MG_F_USER_1 marks that we've already tried AAAA and must not retry.
+   */
+  if (!(nc->flags & MG_F_USER_1) && nc->priv_1.v != NULL) {
+    char *hostname = (char *) nc->priv_1.v;
+    struct mg_connection *dns_conn = NULL;
+    struct mg_resolve_async_opts o;
+    memset(&o, 0, sizeof(o));
+    o.dns_conn = &dns_conn;
+    nc->flags |= MG_F_USER_1;  /* Don't retry AAAA */
+    nc->flags |= MG_F_RESOLVING;
+    if (mg_resolve_async_opt(nc->mgr, hostname, MG_DNS_A_RECORD, resolve_cb,
+                             nc, o) == 0) {
+      MG_FREE(hostname);
+      nc->priv_1.v = NULL;
+      nc->priv_2 = dns_conn;
+      return;  /* A-record re-resolution in flight */
+    }
+    /* Re-resolution failed to schedule — fall through to error */
+    nc->flags &= ~MG_F_RESOLVING;
+  }
+  if (nc->priv_1.v != NULL) {
+    /* Forced-IPv4 fallback also failed (MG_F_USER_1 = we already tried A):
+     * the host is IPv6-only. Drop its cooldown so the next attempt retries
+     * AAAA instead of dead-ending on the missing A record for the whole TTL. */
+    if (nc->flags & MG_F_USER_1) {
+      mg_ipv6_fail_clear((const char *) nc->priv_1.v);
+    }
+    MG_FREE(nc->priv_1.v);
+    nc->priv_1.v = NULL;
+  }
+#endif
 
   if (e == MG_RESOLVE_TIMEOUT) {
     double now = mg_time();
@@ -3069,7 +3218,7 @@ static void resolve_cb(struct mg_dns_message *msg, void *data,
   }
 
   /*
-   * If we get there was no MG_DNS_A_RECORD in the answer
+   * If we get there was no usable DNS answer
    */
   mg_call(nc, NULL, nc->user_data, MG_EV_CONNECT, &failure);
   mg_call(nc, NULL, nc->user_data, MG_EV_CLOSE, NULL);
@@ -3173,15 +3322,36 @@ struct mg_connection *mg_connect_opt(struct mg_mgr *mgr, const char *address,
     /*
      * DNS resolution is required for host.
      * mg_parse_address() fills port in nc->sa, which we pass to resolve_cb()
+     *
+     * When MG_ENABLE_IPV6: query AAAA first, fall back to A in resolve_cb()
+     * if no AAAA answer is found. Hostname is stashed on nc->priv_1.v for
+     * the fallback re-resolution. On IPv4-only builds, behavior is unchanged.
      */
     struct mg_connection *dns_conn = NULL;
     struct mg_resolve_async_opts o;
+    int query_type = MG_DNS_A_RECORD;
     memset(&o, 0, sizeof(o));
     o.dns_conn = &dns_conn;
     o.nameserver = opts.nameserver;
-    if (mg_resolve_async_opt(nc->mgr, host, MG_DNS_A_RECORD, resolve_cb, nc,
-                             o) != 0) {
+#if MG_ENABLE_IPV6
+    nc->priv_1.v = strdup(host);  /* Stash hostname for A-record fallback */
+    if (mg_ipv6_fail_active(host)) {
+      /* Recent IPv6 connect failure for this host — skip AAAA, go
+       * straight to A. MG_F_USER_1 marks AAAA as already-attempted so
+       * resolve_cb won't loop back into the AAAA fallback path. */
+      nc->flags |= MG_F_USER_1;
+      LOG(LL_DEBUG, ("IPv6 cooldown active for %s, forcing A query", host));
+    } else {
+      query_type = MG_DNS_AAAA_RECORD;
+    }
+#endif
+    if (mg_resolve_async_opt(nc->mgr, host, query_type,
+                             resolve_cb, nc, o) != 0) {
       MG_SET_PTRPTR(opts.error_string, "cannot schedule DNS lookup");
+#if MG_ENABLE_IPV6
+      MG_FREE(nc->priv_1.v);
+      nc->priv_1.v = NULL;
+#endif
       mg_destroy_conn(nc, 1 /* destroy_if */);
       return NULL;
     }
@@ -3682,7 +3852,7 @@ static int mg_is_error(void) {
 void mg_socket_if_connect_tcp(struct mg_connection *nc,
                               const union socket_address *sa) {
   int rc, proto = 0;
-  nc->sock = socket(AF_INET, SOCK_STREAM, proto);
+  nc->sock = socket(sa->sa.sa_family, SOCK_STREAM, proto);
   if (nc->sock == INVALID_SOCKET) {
     nc->err = mg_get_errno() ? mg_get_errno() : 1;
     return;
@@ -3690,14 +3860,18 @@ void mg_socket_if_connect_tcp(struct mg_connection *nc,
 #if !defined(MG_ESP8266)
   mg_set_non_blocking_mode(nc->sock);
 #endif
-  rc = connect(nc->sock, &sa->sa, sizeof(sa->sin));
+  {
+    socklen_t sa_len =
+        (sa->sa.sa_family == AF_INET6) ? sizeof(sa->sin6) : sizeof(sa->sin);
+    rc = connect(nc->sock, &sa->sa, sa_len);
+  }
   nc->err = rc < 0 && mg_is_error() ? mg_get_errno() : 0;
   DBG(("%p sock %d rc %d errno %d err %d", nc, (int) nc->sock, rc,
       mg_get_errno(), nc->err));
 }
 
 void mg_socket_if_connect_udp(struct mg_connection *nc) {
-  nc->sock = socket(AF_INET, SOCK_DGRAM, 0);
+  nc->sock = socket(nc->sa.sa.sa_family, SOCK_DGRAM, 0);
   if (nc->sock == INVALID_SOCKET) {
     nc->err = mg_get_errno() ? mg_get_errno() : 1;
     return;
@@ -3741,7 +3915,9 @@ static int mg_socket_if_tcp_send(struct mg_connection *nc, const void *buf,
 
 static int mg_socket_if_udp_send(struct mg_connection *nc, const void *buf,
                                  size_t len) {
-  int n = sendto(nc->sock, buf, len, 0, &nc->sa.sa, sizeof(nc->sa.sin));
+  socklen_t sa_len =
+      (nc->sa.sa.sa_family == AF_INET6) ? sizeof(nc->sa.sin6) : sizeof(nc->sa.sin);
+  int n = sendto(nc->sock, buf, len, 0, &nc->sa.sa, sa_len);
   if (n < 0 && !mg_is_error()) n = 0;
   return n;
 }
@@ -3818,39 +3994,50 @@ static sock_t mg_open_listening_socket(union socket_address *sa, int type,
   int on = 1;
 #endif
 
-  if ((sock = socket(sa->sa.sa_family, type, proto)) != INVALID_SOCKET &&
+  if ((sock = socket(sa->sa.sa_family, type, proto)) == INVALID_SOCKET) {
+    return INVALID_SOCKET;
+  }
+
+#if MG_ENABLE_IPV6
+  if (sa->sa.sa_family == AF_INET6) {
+    int v6only = 0;
+    setsockopt(sock, IPPROTO_IPV6, IPV6_V6ONLY, (void *) &v6only,
+               sizeof(v6only));
+  }
+#endif
+
 #if !MG_LWIP /* LWIP doesn't support either */
 #if defined(_WIN32) && defined(SO_EXCLUSIVEADDRUSE) && !defined(WINCE)
-      /* "Using SO_REUSEADDR and SO_EXCLUSIVEADDRUSE" http://goo.gl/RmrFTm */
-      !setsockopt(sock, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, (void *) &on,
-                  sizeof(on)) &&
+  /* "Using SO_REUSEADDR and SO_EXCLUSIVEADDRUSE" http://goo.gl/RmrFTm */
+  setsockopt(sock, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, (void *) &on,
+             sizeof(on));
 #endif
 
 #if !defined(_WIN32) || !defined(SO_EXCLUSIVEADDRUSE)
-      /*
-       * SO_RESUSEADDR is not enabled on Windows because the semantics of
-       * SO_REUSEADDR on UNIX and Windows is different. On Windows,
-       * SO_REUSEADDR allows to bind a socket to a port without error even if
-       * the port is already open by another program. This is not the behavior
-       * SO_REUSEADDR was designed for, and leads to hard-to-track failure
-       * scenarios. Therefore, SO_REUSEADDR was disabled on Windows unless
-       * SO_EXCLUSIVEADDRUSE is supported and set on a socket.
-       */
-      !setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, (void *) &on, sizeof(on)) &&
+  /*
+   * SO_RESUSEADDR is not enabled on Windows because the semantics of
+   * SO_REUSEADDR on UNIX and Windows is different. On Windows,
+   * SO_REUSEADDR allows to bind a socket to a port without error even if
+   * the port is already open by another program. This is not the behavior
+   * SO_REUSEADDR was designed for, and leads to hard-to-track failure
+   * scenarios. Therefore, SO_REUSEADDR was disabled on Windows unless
+   * SO_EXCLUSIVEADDRUSE is supported and set on a socket.
+   */
+  setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, (void *) &on, sizeof(on));
 #endif
 #endif /* !MG_LWIP */
 
-      !bind(sock, &sa->sa, sa_len) &&
-      (type == SOCK_DGRAM || listen(sock, SOMAXCONN) == 0)) {
-#if !MG_LWIP
-    mg_set_non_blocking_mode(sock);
-    /* In case port was set to 0, get the real port number */
-    (void) getsockname(sock, &sa->sa, &sa_len);
-#endif
-  } else if (sock != INVALID_SOCKET) {
+  if (bind(sock, &sa->sa, sa_len) != 0 ||
+      (type == SOCK_STREAM && listen(sock, SOMAXCONN) != 0)) {
     closesocket(sock);
-    sock = INVALID_SOCKET;
+    return INVALID_SOCKET;
   }
+
+#if !MG_LWIP
+  mg_set_non_blocking_mode(sock);
+  /* In case port was set to 0, get the real port number */
+  (void) getsockname(sock, &sa->sa, &sa_len);
+#endif
 
   return sock;
 }
@@ -12070,7 +12257,7 @@ int mg_resolve_async_opt(struct mg_mgr *mgr, const char *name, int query,
   struct mg_resolve_async_request *req;
   struct mg_connection *dns_nc;
   const char *nameserver = opts.nameserver;
-  char dns_server_buff[17], nameserver_url[26];
+  char dns_server_buff[128], nameserver_url[192];
 
   if (nameserver == NULL) {
     nameserver = mgr->nameserver;
