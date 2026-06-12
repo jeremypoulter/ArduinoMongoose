@@ -88,6 +88,7 @@ void MongooseHttpClient::eventHandler(struct mg_connection *nc, MongooseHttpClie
 
     case MG_EV_CLOSE: {
       DBUGF("Connection %p closed", nc);
+      request->_nc = NULL;
       if(request->_onClose) {
         request->_onClose();
       }
@@ -130,19 +131,39 @@ MongooseHttpClientRequest *MongooseHttpClient::beginRequest(const char *uri)
   return new MongooseHttpClientRequest(this, uri);
 }
 
-void MongooseHttpClient::send(MongooseHttpClientRequest *request)
+bool MongooseHttpClient::send(MongooseHttpClientRequest *request)
 {
+  if(NULL == request) {
+    return false;
+  }
+
+  // The wrapper does not pool or reuse HTTP connections.
+  if(!request->addHeader("Connection", "close")) {
+    DBUGLN("Failed to add Connection: close header");
+    if(request->_onClose) {
+      request->_onClose();
+    }
+    delete request;
+    return false;
+  }
+
   struct mg_connect_opts opts;
   Mongoose.getDefaultOpts(&opts);
 
-  const char *err;
+  const char *err = "unknown error";
   opts.error_string = &err;
 
   mg_connection *nc = mg_connect_http_opt(Mongoose.getMgr(), eventHandler, request, opts, request->_uri, request->_extraHeaders, (const char *)request->_body);
   if(nc) {
     request->_nc = nc;
+    return true;
   } else {
     DBUGF("Failed to connect to %s: %s", request->_uri, err);
+    if(request->_onClose) {
+      request->_onClose();
+    }
+    delete request;
+    return false;
   }
 }
 
@@ -156,7 +177,8 @@ MongooseHttpClientRequest::MongooseHttpClientRequest(MongooseHttpClient *client,
   _contentType("application/x-www-form-urlencoded"),
   _contentLength(-1),
   _body(NULL),
-  _extraHeaders(NULL)
+  _extraHeaders(NULL),
+  _nc(NULL)
 {
 
 }
