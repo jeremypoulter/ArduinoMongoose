@@ -175,7 +175,9 @@ class MongooseHttpClient
     ~MongooseHttpClient();
 
     MongooseHttpClientRequest *beginRequest(const char *uri);
-    void send(MongooseHttpClientRequest *request);
+    // Returns true if the request was queued successfully. On false, the request
+    // (if non-null) has been deleted and onClose was invoked if set.
+    bool send(MongooseHttpClientRequest *request);
 
     void get(const char* uri, MongooseHttpResponseHandler onResponse = NULL, MongooseHttpCloseHandler onClose = NULL);
     void post(const char* uri, const char *contentType, const char *body, MongooseHttpResponseHandler onResponse = NULL, MongooseHttpCloseHandler onClose = NULL);

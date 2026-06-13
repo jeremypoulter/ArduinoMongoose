@@ -5415,11 +5415,11 @@ void mg_ssl_if_conn_free(struct mg_connection *nc) {
     mbedtls_ssl_free(ctx->ssl);
     MG_FREE(ctx->ssl);
   }
+  mg_ssl_if_mbed_free_certs_and_keys(ctx);
   if (ctx->conf != NULL) {
     mbedtls_ssl_config_free(ctx->conf);
     MG_FREE(ctx->conf);
   }
-  mg_ssl_if_mbed_free_certs_and_keys(ctx);
   mbuf_free(&ctx->cipher_suites);
   memset(ctx, 0, sizeof(*ctx));
   MG_FREE(ctx);
