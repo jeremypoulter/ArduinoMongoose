@@ -175,7 +175,8 @@ class MongooseHttpClient
     ~MongooseHttpClient();
 
     MongooseHttpClientRequest *beginRequest(const char *uri);
-    // A false return means onClose has run and the request has been deleted.
+    // Returns true if the request was queued successfully. On false, the request
+    // (if non-null) has been deleted and onClose was invoked if set.
     bool send(MongooseHttpClientRequest *request);
 
     void get(const char* uri, MongooseHttpResponseHandler onResponse = NULL, MongooseHttpCloseHandler onClose = NULL);
