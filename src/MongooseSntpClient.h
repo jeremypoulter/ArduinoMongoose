@@ -12,23 +12,20 @@
 #include <functional>
 
 #include "MongooseString.h"
+#include "MongooseSocket.h"
 
 class MongooseSntpClient;
 
 typedef std::function<void(struct timeval time)> MongooseSntpTimeHandler;
-typedef std::function<void(uint8_t retCode)> MongooseSntpErrorHandler;
 
-class MongooseSntpClient
+class MongooseSntpClient : public MongooseSocket
 {
   private:
-    struct mg_connection *_nc;
-
     MongooseSntpTimeHandler _onTime;
-    MongooseSntpErrorHandler _onError;
 
   protected:
-    static void eventHandler(struct mg_connection *nc, int ev, void *p, void *u);
-    void eventHandler(struct mg_connection *nc, int ev, void *p);
+    void onResolve(mg_connection *nc);
+    void handleEvent(mg_connection *nc, int ev, void *p);
 
   public:
     MongooseSntpClient();
@@ -41,10 +38,6 @@ class MongooseSntpClient
     return getTime(server.c_str(), onTime);
   }
 #endif
-
-  void onError(MongooseSntpErrorHandler fnHandler) {
-    _onError = fnHandler;
-  }
 };
 
 #endif // MG_ENABLE_SNTP

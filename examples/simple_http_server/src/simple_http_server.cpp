@@ -5,9 +5,12 @@
 //  * handle missing pages / 404s
 //
 
+#ifdef ARDUINO
 #include <Arduino.h>
+#endif
 #include <MongooseCore.h>
 #include <MongooseHttpServer.h>
+#include <string>
 
 #ifdef ESP32
 #include <WiFi.h>
@@ -15,14 +18,34 @@
 #elif defined(ESP8266)
 #include <ESP8266WiFi.h>
 #define START_ESP_WIFI
-#else
-#error Platform not supported
 #endif
+
+#ifndef LOGF
+#ifdef ARDUINO
+#define LOGF Serial.printf
+#else
+#define LOGF printf
+#endif
+#endif
+
+#define MESSAGE_PARAM_LENGTH 256
 
 MongooseHttpServer server;
 
+#ifdef START_ESP_WIFI
 const char *ssid = "wifi";
 const char *password = "password";
+#endif
+
+#ifndef DEFAULT_PORT
+#ifdef SIMPLE_SERVER_SECURE
+#define DEFAULT_PORT 443
+#else
+#define DEFAULT_PORT 80
+#endif
+#endif
+
+int port = DEFAULT_PORT;
 
 const char *PARAM_MESSAGE = "message";
 
@@ -79,10 +102,9 @@ const char *server_key =
 
 static void notFound(MongooseHttpServerRequest *request);
 
-#include <Arduino.h>
-
 void setup()
 {
+#ifdef ARDUINO
   Serial.begin(115200);
 
 #ifdef START_ESP_WIFI
@@ -103,52 +125,52 @@ void setup()
   Serial.println(WiFi.hostname());
 #endif
 #endif
+#endif
 
   Mongoose.begin();
 
 #ifdef SIMPLE_SERVER_SECURE
-  if(false == server.begin(443, server_pem, server_key)) {
+  if(false == server.begin(port, server_pem, server_key)) {
     Serial.print("Failed to start server");
     return;
   }
 #else
-  server.begin(80);
+  server.begin(port);
 #endif
+  LOGF("Server started on port %d\n", port);
 
-  server.on("/$", HTTP_GET, [](MongooseHttpServerRequest *request) {
+  server.on("/", HTTP_GET, [](MongooseHttpServerRequest *request) {
     request->send(200, "text/plain", "Hello world");
   });
 
   // Send a GET request to <IP>/get?message=<message>
-  server.on("/get$", HTTP_GET, [](MongooseHttpServerRequest *request) {
-    String message;
-    if (request->hasParam(PARAM_MESSAGE))
+  server.on("/get", HTTP_GET, [](MongooseHttpServerRequest *request)
+  {
+    char message[MESSAGE_PARAM_LENGTH];
+    if (request->getParam(PARAM_MESSAGE, message, MESSAGE_PARAM_LENGTH) > 0)  
     {
-      message = request->getParam(PARAM_MESSAGE);
+      std::string reply = "Hello, GET: " + std::string(message);
+      request->send(200, "text/plain", reply.c_str());
+    } else {
+      request->send(400, "text/plain", "No message sent");
     }
-    else
-    {
-      message = "No message sent";
-    }
-    request->send(200, "text/plain", "Hello, GET: " + message);
   });
 
   // Send a POST request to <IP>/post with a form field message set to <message>
-  server.on("/post$", HTTP_POST, [](MongooseHttpServerRequest *request) {
-    String message;
-    if (request->hasParam(PARAM_MESSAGE))
+  server.on("/post", HTTP_POST, [](MongooseHttpServerRequest *request)
+  {
+    char message[MESSAGE_PARAM_LENGTH];
+    if (request->getParam(PARAM_MESSAGE, message, MESSAGE_PARAM_LENGTH) > 0)  
     {
-      message = request->getParam(PARAM_MESSAGE);
+      std::string reply = "Hello, POST: " + std::string(message);
+      request->send(200, "text/plain", reply.c_str());
+    } else {
+      request->send(400, "text/plain", "No message sent");
     }
-    else
-    {
-      message = "No message sent";
-    }
-    request->send(200, "text/plain", "Hello, POST: " + message);
   });
 
   // Test the basic response class
-  server.on("/basic$", HTTP_GET, [](MongooseHttpServerRequest *request) {
+  server.on("/basic", HTTP_GET, [](MongooseHttpServerRequest *request) {
     MongooseHttpServerResponseBasic *resp = request->beginResponse();
     resp->setCode(200);
     resp->setContentType("text/html");
@@ -169,8 +191,9 @@ void setup()
     request->send(resp);
   });
 
+#ifdef ARDUINO
   // Test the stream response class
-  server.on("/stream$", HTTP_GET, [](MongooseHttpServerRequest *request) {
+  server.on("/stream", HTTP_GET, [](MongooseHttpServerRequest *request) {
     MongooseHttpServerResponseStream *resp = request->beginResponseStream();
     resp->setCode(200);
     resp->setContentType("text/html");
@@ -196,16 +219,57 @@ void setup()
     request->send(resp);
   });
 
+    // Send a POST request to <IP>/post with a form field message set to <message>
+  server.on("/string", HTTP_ANY, [](MongooseHttpServerRequest *request) {
+    String message;
+    if (request->hasParam(PARAM_MESSAGE))
+    {
+      message = request->getParam(PARAM_MESSAGE);
+    }
+    else
+    {
+      message = "No message sent";
+    }
+    request->send(200, "text/plain", "Hello, Arduino String: " + message);
+  });
+
+#endif
+
   server.onNotFound(notFound);
 }
 
 void loop()
 {
   Mongoose.poll(1000);
-  Serial.printf("Free memory %u\n", ESP.getFreeHeap());
+
+#ifdef ARDUINO
+  LOGF("Free memory %u\n", ESP.getFreeHeap());
+#endif
 }
 
 static void notFound(MongooseHttpServerRequest *request)
 {
   request->send(404, "text/plain", "Not found");
 }
+
+#ifndef ARDUINO
+int main(int argc, char *argv[])
+{
+  int i;
+
+  for (i = 1; i < argc; i++)
+  {
+    if (strcmp(argv[i], "--help") == 0) {
+      fprintf(stderr, "Usage: %s [--show-headers] <URL>\n", argv[0]);
+      exit(EXIT_SUCCESS);
+    } else {
+      break;
+    }
+  }
+
+  setup();
+  while(true) {
+    loop();
+  }
+}
+#endif

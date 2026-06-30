@@ -40,4 +40,4 @@ typedef WebRequestMethod HttpRequestMethod;
 
 typedef uint8_t HttpRequestMethodComposite;
 
-#endif /* _MongooseHttp_H_ */
+#endif /* MongooseHttp_h */
