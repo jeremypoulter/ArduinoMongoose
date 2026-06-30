@@ -51,14 +51,14 @@ bool MongooseHttpServer::begin(uint16_t port, const char *cert, const char *priv
   return false;
 }
 
-MongooseHttpServerEndpoint *MongooseHttpServer::on(const char* uri)
+MongooseHttpServerEndpointUpload *MongooseHttpServer::on(const char* uri)
 {
   return on(uri, HTTP_ANY);
 }
 
-MongooseHttpServerEndpoint *MongooseHttpServer::on(const char* uri, MongooseHttpRequestHandler onRequest)
+MongooseHttpServerEndpointUpload *MongooseHttpServer::on(const char* uri, MongooseHttpRequestHandler onRequest)
 {
-  MongooseHttpServerEndpoint *endpoint = on(uri);
+  MongooseHttpServerEndpointUpload *endpoint = on(uri);
   if(endpoint)
   {
     endpoint->onRequest(onRequest);
@@ -68,9 +68,9 @@ MongooseHttpServerEndpoint *MongooseHttpServer::on(const char* uri, MongooseHttp
   return nullptr;
 }
 
-MongooseHttpServerEndpoint *MongooseHttpServer::on(const char* uri, HttpRequestMethodComposite method, MongooseHttpRequestHandler onRequest)
+MongooseHttpServerEndpointUpload *MongooseHttpServer::on(const char* uri, HttpRequestMethodComposite method, MongooseHttpRequestHandler onRequest)
 {
-  MongooseHttpServerEndpoint *endpoint = on(uri, method);
+  MongooseHttpServerEndpointUpload *endpoint = on(uri, method);
   if(endpoint)
   {
     endpoint->onRequest(onRequest);
@@ -80,9 +80,14 @@ MongooseHttpServerEndpoint *MongooseHttpServer::on(const char* uri, HttpRequestM
   return nullptr;
 }
 
-MongooseHttpServerEndpoint *MongooseHttpServer::on(const char* uri, HttpRequestMethodComposite method)
+MongooseHttpServerEndpointUpload *MongooseHttpServer::on(const char* uri, HttpRequestMethodComposite method)
 {
-  return on(new MongooseHttpServerEndpoint(method, uri));
+  MongooseHttpServerEndpointUpload *endpoint = new MongooseHttpServerEndpointUpload(method, uri);
+  if(endpoint) {
+    _endpoints.push_front(endpoint);
+    return endpoint;
+  }
+  return nullptr;
 }
 
 MongooseHttpServerEndpointUpload *MongooseHttpServer::on(const char* uri, MongooseHttpUploadHandler onUpload)

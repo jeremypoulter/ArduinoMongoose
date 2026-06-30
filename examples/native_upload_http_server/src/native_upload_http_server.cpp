@@ -8,9 +8,42 @@
 #include <MongooseCore.h>
 #include <MongooseHttpServer.h>
 
+#ifndef ARDUINO
+#include <stdio.h>
+#include <stdlib.h>
+#endif
+
 #define LOGF printf
 
 MongooseHttpServer server;
+
+#ifndef ARDUINO
+// Minimal file-based upload helper for native (Linux) builds
+static FILE *upload_file = nullptr;
+static bool upload_error = false;
+
+static struct {
+  bool begin() {
+    upload_file = fopen("/tmp/native_upload.bin", "wb");
+    upload_error = (upload_file == nullptr);
+    if(upload_error) { LOGF("Upload: failed to open /tmp/native_upload.bin\n"); }
+    return !upload_error;
+  }
+  size_t write(uint8_t *data, size_t len) {
+    if(!upload_file) { return 0; }
+    return fwrite(data, 1, len, upload_file);
+  }
+  bool end(bool) {
+    if(upload_file) { fclose(upload_file); upload_file = nullptr; }
+    return !upload_error;
+  }
+  bool hasError() { return upload_error; }
+} Upload;
+
+static void uploadError(MongooseHttpServerRequest *request) {
+  request->send(500, "text/plain", "Upload failed");
+}
+#endif
 
 const char *server_pem = 
 "-----BEGIN CERTIFICATE-----\r\n"
@@ -155,7 +188,7 @@ void setup()
       }
 
       if(MG_EV_HTTP_PART_END == ev) {
-        Serial.println("Data finished");
+        LOGF("Data finished\n");
         if(Upload.end(true)) {
           LOGF("Upload Success: %lluB\n", index+len);
           request->send(200, "text/plain", "OK");
@@ -170,7 +203,11 @@ void setup()
     onClose([](MongooseHttpServerRequest *request) 
     {
       if(uploadCompleted) {
+#ifdef ARDUINO
         ESP.restart();
+#else
+        exit(0);
+#endif
       }
     });
 }

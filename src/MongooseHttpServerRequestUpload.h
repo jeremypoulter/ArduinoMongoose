@@ -12,12 +12,14 @@
 
 #include <mongoose.h>
 
+#include "MongooseString.h"
 #include "MongooseHttpServerRequest.h"
 
 class MongooseHttpServerRequestUpload : public MongooseHttpServerRequest
 {
   private:
     uint64_t index;
+    void handleMessage(mg_connection *nc, mg_http_message *msg);
 
   public:
     MongooseHttpServerRequestUpload(mg_connection *nc, HttpRequestMethodComposite method, mg_http_message *msg, MongooseHttpServerEndpoint *endpoint) :
