@@ -10,7 +10,7 @@
 
 #endif
 
-#include "MongooseHttpServerEndpointUpload.h"
+#include "MongooseHttpServerEndpoint.h"
 #include "MongooseHttpServerRequestUpload.h"
 
 typedef std::function<size_t(MongooseHttpServerRequest *request, int ev, MongooseString filename, uint64_t index, uint8_t *data, size_t len)> MongooseHttpUploadHandler;
