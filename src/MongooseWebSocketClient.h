@@ -86,7 +86,7 @@ class MongooseWebSocketClient
     MongooseWebSocketCloseHandler _onClose;
     
     // Static event handler (mongoose callback)
-    static void eventHandler(struct mg_connection *nc, int ev, void *ev_data, void *user_data);
+    static void eventHandler(struct mg_connection *nc, int ev, void *ev_data);
     
     // Instance event handler
     void handleEvent(struct mg_connection *nc, int ev, void *ev_data);
