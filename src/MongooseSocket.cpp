@@ -149,7 +149,7 @@ void MongooseSocket::onConnect(mg_connection *nc)
       .cert = _cert,
       .key = _key,
       .name = _host,
-      .skip_verification = _reject_unauthorized ? 0 : 1
+      .skip_verification = _reject_unauthorized ? false : true
     };
 
     mg_tls_init(nc, &opts);

@@ -15,16 +15,19 @@ jobs:
       fail-fast: false
       matrix:
         include:
-        - example: simplest_web_server_esp
-          board: espwroverkit
-          platform: espressif32
-        - example: simplest_web_server_native
+        - example: simple_http_client
           board: native
           platform: native
-        - example: simple_http_client_native
+        - example: simple_http_server
           board: native
           platform: native
-        - example: simple_websocket_client_native
+        - example: simple_mqtt_client
+          board: native
+          platform: native
+        - example: websocket_chat
+          board: native
+          platform: native
+        - example: sntp_client
           board: native
           platform: native
         #- example: simple_http_server
@@ -51,7 +54,7 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v7
+      uses: actions/checkout@v4
       with:
         # We must fetch at least the immediate parents so that if this is
         # a pull request then we can checkout the head.
@@ -64,12 +67,12 @@ jobs:
 
     # Initializes the CodeQL tools for scanning.
     - name: Initialize CodeQL
-      uses: github/codeql-action/init@v4
+      uses: github/codeql-action/init@v3
       with:
         languages: cpp
 
     - name: Set up Python
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@v5
 
     - name: Install Platform IO
       run:
@@ -104,4 +107,4 @@ jobs:
         pio run -e ${{ matrix.board }}
 
     - name: Perform CodeQL Analysis
-      uses: github/codeql-action/analyze@v4
+      uses: github/codeql-action/analyze@v3
