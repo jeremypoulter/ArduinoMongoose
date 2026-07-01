@@ -6,6 +6,8 @@ on:
 
 permissions:
   contents: read
+  issues: write
+  pull-requests: write
 
 jobs:
   native-tests:
@@ -26,7 +28,7 @@ jobs:
 
       - name: Install PlatformIO
         run: |
-          pip install -U platformio
+          pip install -U gcovr platformio
           platformio update
 
       - name: Wait for Mosquitto
@@ -49,4 +51,129 @@ jobs:
       - name: Run native unit tests
         run: |
           cd tests/unit
-          pio test -e native
+          mkdir -p test-results
+          pio test -e native --junit-output-path test-results/native-junit.xml
+
+      - name: Generate coverage reports
+        run: |
+          mkdir -p tests/unit/test-results
+          gcovr \
+            --root . \
+            --filter '^src/' \
+            --object-directory tests/unit/.pio/build/native \
+            --gcov-ignore-errors=source_not_found \
+            --cobertura-pretty \
+            --output tests/unit/test-results/coverage.xml
+          gcovr \
+            --root . \
+            --filter '^src/' \
+            --object-directory tests/unit/.pio/build/native \
+            --gcov-ignore-errors=source_not_found \
+            --txt-summary \
+            > tests/unit/test-results/coverage-summary.txt
+
+      - name: Summarize test results
+        if: always()
+        run: |
+          python - <<'PY'
+          import os
+          import pathlib
+          import xml.etree.ElementTree as ET
+
+          junit_path = pathlib.Path("tests/unit/test-results/native-junit.xml")
+          coverage_xml_path = pathlib.Path("tests/unit/test-results/coverage.xml")
+          summary_path = pathlib.Path("tests/unit/test-results/pr-summary.md")
+
+          tests = failures = skipped = errors = 0
+          if junit_path.exists():
+              root = ET.parse(junit_path).getroot()
+              suites = [root] if root.tag == "testsuite" else list(root.findall("testsuite"))
+              for suite in suites:
+                  tests += int(suite.attrib.get("tests", 0))
+                  failures += int(suite.attrib.get("failures", 0))
+                  skipped += int(suite.attrib.get("skipped", 0))
+                  errors += int(suite.attrib.get("errors", 0))
+
+          coverage_header = "Coverage report unavailable."
+          if coverage_xml_path.exists():
+              coverage_root = ET.parse(coverage_xml_path).getroot()
+              line_rate = float(coverage_root.attrib.get("line-rate", 0)) * 100
+              branch_rate = float(coverage_root.attrib.get("branch-rate", 0)) * 100
+              lines_covered = int(coverage_root.attrib.get("lines-covered", 0))
+              lines_valid = int(coverage_root.attrib.get("lines-valid", 0))
+              branches_covered = int(coverage_root.attrib.get("branches-covered", 0))
+              branches_valid = int(coverage_root.attrib.get("branches-valid", 0))
+              coverage_header = (
+                  f"- Lines: {lines_covered}/{lines_valid} ({line_rate:.2f}%)\n"
+                  f"- Branches: {branches_covered}/{branches_valid} ({branch_rate:.2f}%)"
+              )
+
+          summary = "\n".join(
+              [
+                  "## Native unit test results",
+                  "",
+                  f"- Tests: {tests}",
+                  f"- Failures: {failures}",
+                  f"- Errors: {errors}",
+                  f"- Skipped: {skipped}",
+                  "",
+                  "## Native coverage",
+                  "",
+                  coverage_header,
+                  "",
+              ]
+          )
+
+          summary_path.write_text(summary)
+
+          github_step_summary = os.environ.get("GITHUB_STEP_SUMMARY")
+          if github_step_summary:
+              with open(github_step_summary, "a") as fh:
+                  fh.write(summary)
+          PY
+
+      - name: Upload native test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-test-artifacts
+          path: |
+            tests/unit/test-results/native-junit.xml
+            tests/unit/test-results/coverage.xml
+            tests/unit/test-results/coverage-summary.txt
+            tests/unit/test-results/pr-summary.md
+
+      - name: Comment on pull request
+        if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- native-unit-test-report -->';
+            const body = `${marker}\n${fs.readFileSync('tests/unit/test-results/pr-summary.md', 'utf8')}`;
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner,
+              repo,
+              issue_number,
+              per_page: 100,
+            });
+            const existing = comments.find((comment) =>
+              comment.user.type === 'Bot' && comment.body.includes(marker)
+            );
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number,
+                body,
+              });
+            }
