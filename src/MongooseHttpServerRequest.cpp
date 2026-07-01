@@ -15,9 +15,9 @@
 MongooseHttpServerRequest::MongooseHttpServerRequest(mg_connection *nc, HttpRequestMethodComposite method, mg_http_message *msg, MongooseHttpServerEndpoint *endpoint) :
   MongooseHttpServerConnection(),
 #if MG_COPY_HTTP_MESSAGE
-  _msg(duplicateMessage(msg)),
+  MongooseHttpMessage(duplicateMessage(msg)),
 #else
-  _msg(msg),
+  MongooseHttpMessage(msg),
 #endif
   _method(method),
   _response(nullptr),

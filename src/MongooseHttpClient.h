@@ -1,9 +1,7 @@
 #ifndef MongooseHttpClient_h
 #define MongooseHttpClient_h
 
-#ifdef ARDUINO
-#include "Arduino.h"
-#endif
+#include "MongoosePlatform.h"
 
 #include <mongoose.h>
 
@@ -12,6 +10,7 @@
 #include "MongooseString.h"
 #include "MongooseSocket.h"
 #include "MongooseHttp.h"
+#include "MongooseHttpMessage.h"
 
 #ifndef MOGOOSE_HTTP_CLIENT_TIMEOUT
 #define MOGOOSE_HTTP_CLIENT_TIMEOUT 1500
@@ -97,70 +96,14 @@ class MongooseHttpClientRequest : public MongooseSocket
     }
 };
 
-class MongooseHttpClientResponse {
-  protected:
-    mg_http_message *_msg;
-
+class MongooseHttpClientResponse : public MongooseHttpMessage {
   public:
     MongooseHttpClientResponse(mg_http_message *msg) :
-      _msg(msg)
+      MongooseHttpMessage(msg)
     {
     }
 
     ~MongooseHttpClientResponse() {
-    }
-
-    MongooseString message() {
-      return MongooseString(_msg->message);
-    }
-    MongooseString body() {
-      return MongooseString(_msg->body);
-    }
-
-    MongooseString methodStr() {
-      return MongooseString(_msg->method);
-    }
-    MongooseString uri() {
-      return MongooseString(_msg->uri);
-    }
-    MongooseString proto() {
-      return MongooseString(_msg->proto);
-    }
-
-    int respCode() {
-      return mg_http_status(_msg);
-    }
-    MongooseString respStatusMsg() {
-      return MongooseString(_msg->proto);
-    }
-
-    MongooseString queryString() {
-      return MongooseString(_msg->query);
-    }
-
-    int headers() {
-      int i;
-      for (i = 0; i < MG_MAX_HTTP_HEADERS && _msg->headers[i].name.len > 0; i++) {
-      }
-      return i;
-    }
-    MongooseString headers(const char *name) {
-      MongooseString ret(mg_http_get_header(_msg, name));
-      return ret;
-    }
-    MongooseString headerNames(int i) {
-      return MongooseString(_msg->headers[i].name);
-    }
-    MongooseString headerValues(int i) {
-      return MongooseString(_msg->headers[i].value);
-    }
-
-    MongooseString host() {
-      return headers("Host");
-    }
-
-    MongooseString contentType() {
-      return headers("Content-Type");
     }
 
     size_t contentLength();

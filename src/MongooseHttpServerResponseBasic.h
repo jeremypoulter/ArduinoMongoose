@@ -1,14 +1,7 @@
 #ifndef MongooseHttpServerResponseBasic_h
 #define MongooseHttpServerResponseBasic_h
 
-#ifdef ARDUINO
-#include "Arduino.h"
-
-#if defined(ESP8266)
-#include <ESP8266WiFi.h>
-#endif
-
-#endif
+#include "MongoosePlatform.h"
 
 #include <mongoose.h>
 

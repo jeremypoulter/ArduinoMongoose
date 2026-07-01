@@ -1,9 +1,7 @@
 #ifndef MongooseMdns_h
 #define MongooseMdns_h
 
-#ifdef ARDUINO
-#include "Arduino.h"
-#endif
+#include "MongoosePlatform.h"
 
 #include <mongoose.h>
 

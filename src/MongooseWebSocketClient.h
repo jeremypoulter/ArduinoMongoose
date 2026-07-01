@@ -1,10 +1,7 @@
 #ifndef MongooseWebSocketClient_h
 #define MongooseWebSocketClient_h
 
-#ifdef ARDUINO
-#include "Arduino.h"
-#include <IPAddress.h>
-#endif
+#include "MongoosePlatform.h"
 
 #include <mongoose.h>
 #include <functional>
