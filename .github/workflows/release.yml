@@ -16,7 +16,7 @@ jobs:
 
     steps:
       ### Check the version number in the code matches the tag number
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Retrieve the version number(s)
         run: |
@@ -43,10 +43,10 @@ jobs:
     needs: release_number
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
 
       - name: Install Platform IO
         run: |

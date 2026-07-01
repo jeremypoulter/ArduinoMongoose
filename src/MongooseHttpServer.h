@@ -40,10 +40,10 @@ class MongooseHttpServer : public MongooseHttpServerConnection
     bool begin(uint16_t port);
     bool begin(uint16_t port, const char *cert, const char *private_key);
 
-    MongooseHttpServerEndpoint *on(const char* uri);
-    MongooseHttpServerEndpoint *on(const char* uri, HttpRequestMethodComposite method);
-    MongooseHttpServerEndpoint *on(const char* uri, MongooseHttpRequestHandler onRequest);
-    MongooseHttpServerEndpoint *on(const char* uri, HttpRequestMethodComposite method, MongooseHttpRequestHandler onRequest);
+    MongooseHttpServerEndpointUpload *on(const char* uri);
+    MongooseHttpServerEndpointUpload *on(const char* uri, HttpRequestMethodComposite method);
+    MongooseHttpServerEndpointUpload *on(const char* uri, MongooseHttpRequestHandler onRequest);
+    MongooseHttpServerEndpointUpload *on(const char* uri, HttpRequestMethodComposite method, MongooseHttpRequestHandler onRequest);
     MongooseHttpServerEndpointUpload *on(const char* uri, MongooseHttpUploadHandler onUpload);
     MongooseHttpServerEndpointWebSocket *on(const char* uri, MongooseHttpWebSocketFrameHandler onFrame);
     MongooseHttpServerEndpoint *on(MongooseHttpServerEndpoint *endpoint);

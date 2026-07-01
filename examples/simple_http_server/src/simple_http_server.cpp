@@ -10,6 +10,7 @@
 #endif
 #include <MongooseCore.h>
 #include <MongooseHttpServer.h>
+#include <MongooseMdns.h>
 #include <string>
 
 #ifdef ESP32
@@ -138,6 +139,14 @@ void setup()
   server.begin(port);
 #endif
   LOGF("Server started on port %d\n", port);
+
+  // Advertise this device on the local network as "mongoose-server.local"
+  // and register the HTTP service so DNS-SD clients can discover it.
+#ifdef ARDUINO
+  Mdns.begin("mongoose-server");
+  Mdns.addService("_http._tcp", port);
+  LOGF("mDNS started: mongoose-server.local\n");
+#endif
 
   server.on("/", HTTP_GET, [](MongooseHttpServerRequest *request) {
     request->send(200, "text/plain", "Hello world");

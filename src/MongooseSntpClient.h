@@ -7,8 +7,6 @@
 
 #include <mongoose.h>
 
-#if MG_ENABLE_SNTP
-
 #include <functional>
 
 #include "MongooseString.h"
@@ -39,7 +37,5 @@ class MongooseSntpClient : public MongooseSocket
   }
 #endif
 };
-
-#endif // MG_ENABLE_SNTP
 
 #endif /* MongooseSntpClient_h */

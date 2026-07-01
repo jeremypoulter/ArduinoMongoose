@@ -31,10 +31,13 @@ enum RequestHandle {
   REQUEST_ERROR
 };
 
+class MongooseHttpServerRequestUpload;
+
 class MongooseHttpServerEndpoint
 {
   friend MongooseHttpServer;
   friend MongooseHttpServerRequest;
+  friend MongooseHttpServerRequestUpload;
 
   private:
     HttpRequestMethodComposite _method;

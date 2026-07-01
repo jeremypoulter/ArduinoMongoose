@@ -11,8 +11,6 @@
 #include "MongooseCore.h"
 #include "MongooseSntpClient.h"
 
-#if MG_ENABLE_SNTP
-
 MongooseSntpClient::MongooseSntpClient() :
   MongooseSocket(),
   _onTime(NULL)
@@ -71,5 +69,3 @@ bool MongooseSntpClient::getTime(const char *server, MongooseSntpTimeHandler onT
 
   return false;
 }
-
-#endif // MG_ENABLE_SNTP
