@@ -216,3 +216,13 @@ void loop()
 {
   Mongoose.poll(1000);
 }
+
+#ifndef ARDUINO
+int main(int argc, char *argv[])
+{
+  setup();
+  while(true) {
+    loop();
+  }
+}
+#endif

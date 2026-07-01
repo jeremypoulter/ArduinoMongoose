@@ -20510,6 +20510,18 @@ static int load_cert(SSL *ssl, struct mg_str s) {
   return rc;
 }
 
+// Some stripped-down OpenSSL ports (e.g. ESP-IDF / Arduino ESP32) do not
+// define these BIO control constants, so provide fallback values.
+#ifndef BIO_CTRL_PUSH
+#define BIO_CTRL_PUSH 6
+#endif
+#ifndef BIO_CTRL_POP
+#define BIO_CTRL_POP 7
+#endif
+#ifndef BIO_CTRL_FLUSH
+#define BIO_CTRL_FLUSH 11
+#endif
+
 static long mg_bio_ctrl(BIO *b, int cmd, long larg, void *pargs) {
   long ret = 0;
   if (cmd == BIO_CTRL_PUSH) ret = 1;
