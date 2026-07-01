@@ -2,9 +2,9 @@ name: Platform IO
 
 on:
   push:
-    branches: [ master ]
+    branches: [ master, mongoose_7 ]
   pull_request:
-    branches: [ master ]
+    branches: [ master, mongoose_7 ]
 
 jobs:
 
