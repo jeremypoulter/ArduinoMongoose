@@ -95,6 +95,26 @@ class MongooseHttpClientRequest : public MongooseSocket
       MongooseSocket::onClose(handler);
       return this;
     }
+
+    // Gracefully stop the request and let the connection drain to close.
+    bool cancel() {
+      if(!getConnection()) {
+        return false;
+      }
+
+      MongooseSocket::disconnect();
+      return true;
+    }
+
+    // Immediately tear down the underlying connection.
+    bool abort() {
+      if(!getConnection()) {
+        return false;
+      }
+
+      MongooseSocket::abort();
+      return true;
+    }
 };
 
 class MongooseHttpClientResponse {

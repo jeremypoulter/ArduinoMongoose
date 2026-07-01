@@ -101,6 +101,8 @@ bool MongooseMqttClient::connect(MongooseMqttProtocol protocol, const char *serv
 
     if(MQTT_MQTTS == protocol) {
       setSecure(server);
+    } else {
+      clearSecurity();
     }
 
     if(MongooseSocket::connect(
@@ -109,7 +111,7 @@ bool MongooseMqttClient::connect(MongooseMqttProtocol protocol, const char *serv
       return true;
     }
 
-    DBUGF("Failed to connect to %s: %s", server, err);
+    DBUGF("Failed to connect to %s", server);
   }
   return false;
 }
