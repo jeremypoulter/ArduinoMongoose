@@ -110,6 +110,15 @@ class MongooseWebSocketClient
      */
     bool connect(const char *url, const char *protocol = nullptr, const char *extraHeaders = nullptr);
     
+#ifdef ARDUINO
+    bool connect(const String &url, const char *protocol = nullptr, const char *extraHeaders = nullptr) {
+      return connect(url.c_str(), protocol, extraHeaders);
+    }
+    bool connect(const String &url, const String &protocol, const char *extraHeaders = nullptr) {
+      return connect(url.c_str(), protocol.c_str(), extraHeaders);
+    }
+#endif
+    
     /**
      * @brief Gracefully close WebSocket connection
      */
@@ -128,6 +137,12 @@ class MongooseWebSocketClient
      * @return true if sent successfully
      */
     bool sendTXT(const char *msg, size_t length);
+    
+#ifdef ARDUINO
+    bool sendTXT(const String &msg) {
+      return sendTXT(msg.c_str(), msg.length());
+    }
+#endif
     
     /**
      * @brief Send raw WebSocket frame
@@ -178,6 +193,13 @@ class MongooseWebSocketClient
      */
     bool isConnectionOpen() const {
       return _state == State::CONNECTED;
+    }
+
+    /**
+     * @brief Alias for isConnectionOpen() for API consistency
+     */
+    bool connected() const {
+      return isConnectionOpen();
     }
     
     /**

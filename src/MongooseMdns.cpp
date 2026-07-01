@@ -169,6 +169,38 @@ bool MongooseMdns::addService(const char *protocol, const char *transport, uint1
   return addService(srvcproto, port, txt);
 }
 
+bool MongooseMdns::removeService(const char *srvcproto)
+{
+  if (!srvcproto) {
+    return false;
+  }
+
+  for (int i = 0; i < _numServices; i++) {
+    if (strcmp(_services[i].srvcproto, srvcproto) == 0) {
+      // Shift remaining entries down
+      for (int j = i; j < _numServices - 1; j++) {
+        _services[j] = _services[j + 1];
+      }
+      _numServices--;
+      DBUGF("mDNS: removed service '%s'", srvcproto);
+      return true;
+    }
+  }
+
+  return false;
+}
+
+bool MongooseMdns::removeService(const char *protocol, const char *transport)
+{
+  if (!protocol || !transport) {
+    return false;
+  }
+
+  char srvcproto[64];
+  snprintf(srvcproto, sizeof(srvcproto), "%s.%s", protocol, transport);
+  return removeService(srvcproto);
+}
+
 bool MongooseMdns::query(const char *name, unsigned int rtype)
 {
   if (!_mdns || !name) {

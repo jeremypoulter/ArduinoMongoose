@@ -64,6 +64,34 @@ bool MongooseHttpClient::put(const char* uri, const char *contentType, const cha
   return request->send();
 }
 
+bool MongooseHttpClient::patch(const char* uri, const char *contentType, const char *body, MongooseHttpResponseHandler onResponse, MongooseSocketCloseHandler onClose)
+{
+  MongooseHttpClientRequest *request = beginRequest(uri);
+  request->setMethod(HTTP_PATCH);
+  request->setContentType(contentType);
+  request->setContent(body);
+  if(nullptr != onResponse) {
+    request->onResponse(onResponse);
+  }
+  if(nullptr != onClose) {
+    request->onClose(onClose);
+  }
+  return request->send();
+}
+
+bool MongooseHttpClient::delete_(const char* uri, MongooseHttpResponseHandler onResponse, MongooseSocketCloseHandler onClose)
+{
+  MongooseHttpClientRequest *request = beginRequest(uri);
+  request->setMethod(HTTP_DELETE);
+  if(nullptr != onResponse) {
+    request->onResponse(onResponse);
+  }
+  if(nullptr != onClose) {
+    request->onClose(onClose);
+  }
+  return request->send();
+}
+
 MongooseHttpClientRequest *MongooseHttpClient::beginRequest(const char *uri)
 {
   return new MongooseHttpClientRequest(uri);

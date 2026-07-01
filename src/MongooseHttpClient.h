@@ -95,6 +95,11 @@ class MongooseHttpClientRequest : public MongooseSocket
       MongooseSocket::onClose(handler);
       return this;
     }
+
+    MongooseHttpClientRequest *abort() {
+      MongooseSocket::abort();
+      return this;
+    }
 };
 
 class MongooseHttpClientResponse {
@@ -177,6 +182,8 @@ class MongooseHttpClient
     bool get(const char* uri, MongooseHttpResponseHandler onResponse = nullptr, MongooseSocketCloseHandler onClose = nullptr);
     bool post(const char* uri, const char *contentType, const char *body, MongooseHttpResponseHandler onResponse = nullptr, MongooseSocketCloseHandler onClose = nullptr);
     bool put(const char* uri, const char *contentType, const char *body, MongooseHttpResponseHandler onResponse = nullptr, MongooseSocketCloseHandler onClose = nullptr);
+    bool patch(const char* uri, const char *contentType, const char *body, MongooseHttpResponseHandler onResponse = nullptr, MongooseSocketCloseHandler onClose = nullptr);
+    bool delete_(const char* uri, MongooseHttpResponseHandler onResponse = nullptr, MongooseSocketCloseHandler onClose = nullptr);
 
 #ifdef ARDUINO
     bool get(String &uri, MongooseHttpResponseHandler onResponse = nullptr, MongooseSocketCloseHandler onClose = nullptr) {
@@ -201,6 +208,20 @@ class MongooseHttpClient
     }
     bool put(String &uri, String& contentType, String& body, MongooseHttpResponseHandler onResponse = nullptr, MongooseSocketCloseHandler onClose = nullptr) {
       return put(uri.c_str(), contentType.c_str(), body.c_str(), onResponse, onClose);
+    }
+
+    bool patch(String &uri, const char *contentType, const char *body, MongooseHttpResponseHandler onResponse = nullptr, MongooseSocketCloseHandler onClose = nullptr) {
+      return patch(uri.c_str(), contentType, body, onResponse, onClose);
+    }
+    bool patch(String& uri, String& contentType, const char *body, MongooseHttpResponseHandler onResponse = nullptr, MongooseSocketCloseHandler onClose = nullptr) {
+      return patch(uri.c_str(), contentType.c_str(), body, onResponse, onClose);
+    }
+    bool patch(String &uri, String& contentType, String& body, MongooseHttpResponseHandler onResponse = nullptr, MongooseSocketCloseHandler onClose = nullptr) {
+      return patch(uri.c_str(), contentType.c_str(), body.c_str(), onResponse, onClose);
+    }
+
+    bool delete_(String &uri, MongooseHttpResponseHandler onResponse = nullptr, MongooseSocketCloseHandler onClose = nullptr) {
+      return delete_(uri.c_str(), onResponse, onClose);
     }
 #endif // ARDUINO
 };
