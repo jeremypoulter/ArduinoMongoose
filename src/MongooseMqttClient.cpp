@@ -53,7 +53,7 @@ void MongooseMqttClient::handleEvent(mg_connection *nc, int ev, void *p)
         DBUGF("Got mqtt connection error: %d", connack_status_code);
         char buf[100];
         snprintf(buf, sizeof(buf), "MQTT connection error: %d", connack_status_code);
-        onError(nc, buf);
+        MongooseSocket::onError(nc, buf);
       }
       break;
     }
