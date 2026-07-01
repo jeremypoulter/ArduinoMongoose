@@ -309,7 +309,7 @@ void MongooseHttpServerRequest::requestAuthentication(const char* realm)
 
   char headers[64];
   mg_snprintf(headers, sizeof(headers), 
-      "WWW-Authenticate: Basic realm=%s",
+      "WWW-Authenticate: Basic realm=%s\r\n",
       realm);
 
   mg_http_reply(getConnection(), 401, headers, "");
