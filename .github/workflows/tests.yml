@@ -1,0 +1,49 @@
+name: Unit Tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  native-tests:
+    runs-on: ubuntu-latest
+    services:
+      mosquitto:
+        image: eclipse-mosquitto:2
+        ports:
+          - 1883:1883
+    env:
+      ARDUINO_MONGOOSE_ENABLE_MQTT_TESTS: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+
+      - name: Install PlatformIO
+        run: |
+          pip install -U platformio
+          platformio update
+
+      - name: Wait for Mosquitto
+        run: |
+          python - <<'PY'
+          import socket
+          import time
+
+          deadline = time.time() + 30
+          while time.time() < deadline:
+              try:
+                  with socket.create_connection(("127.0.0.1", 1883), timeout=1):
+                      break
+              except OSError:
+                  time.sleep(1)
+          else:
+              raise SystemExit("Mosquitto service did not become ready")
+          PY
+
+      - name: Run native unit tests
+        run: |
+          cd tests/unit
+          pio test -e native
