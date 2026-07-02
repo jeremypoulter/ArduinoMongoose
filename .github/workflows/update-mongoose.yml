@@ -1,0 +1,97 @@
+name: Update vendored Mongoose
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 5 * * *'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-mongoose:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Determine latest upstream tag
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          RELEASE_URL="https://api.github.com/repos/cesanta/mongoose/releases/latest"
+          TAGS_URL="https://api.github.com/repos/cesanta/mongoose/tags"
+          curl_common=(
+            -fsSL
+            -H "Accept: application/vnd.github+json"
+            -H "Authorization: Bearer ${{ github.token }}"
+            -H "User-Agent: github-actions"
+          )
+
+          release_json=$(curl "${curl_common[@]}" "$RELEASE_URL" || true)
+          latest_tag=$(jq -r '.tag_name // empty' <<<"$release_json")
+
+          if [ -z "$latest_tag" ]; then
+            tags_json=$(curl "${curl_common[@]}" "$TAGS_URL")
+            latest_tag=$(jq -r '.[0].name // empty' <<<"$tags_json")
+          fi
+
+          if [ -z "$latest_tag" ]; then
+            echo "Failed to determine latest upstream mongoose tag"
+            exit 1
+          fi
+
+          current_tag="unknown"
+          if [ -f .mongoose-version ]; then
+            current_tag=$(cat .mongoose-version)
+          fi
+
+          echo "latest_tag=$latest_tag" >> "$GITHUB_OUTPUT"
+          echo "current_tag=$current_tag" >> "$GITHUB_OUTPUT"
+
+          if [ "$latest_tag" = "$current_tag" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Mongoose already up to date: $current_tag"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Mongoose update available: $current_tag -> $latest_tag"
+          fi
+
+      - name: Update vendored files
+        if: steps.detect.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag="${{ steps.detect.outputs.latest_tag }}"
+          base_url="https://raw.githubusercontent.com/cesanta/mongoose/$tag"
+
+          curl -fsSL "$base_url/mongoose.c" -o src/mongoose.c
+          curl -fsSL "$base_url/mongoose.h" -o src/mongoose.h
+          printf '%s\n' "$tag" > .mongoose-version
+
+      - name: Create pull request
+        if: steps.detect.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          base: mongoose_7
+          branch: ci/update-mongoose-${{ steps.detect.outputs.latest_tag }}
+          delete-branch: true
+          commit-message: chore: update mongoose to ${{ steps.detect.outputs.latest_tag }}
+          title: chore: update mongoose to ${{ steps.detect.outputs.latest_tag }}
+          body: |
+            This PR updates vendored Mongoose sources to `${{ steps.detect.outputs.latest_tag }}`.
+
+            Note: the updater workflow intentionally does **not** run build/tests by design.
+            Normal repository PR checks are expected to validate these changes.
+          labels: |
+            dependencies
+            upstream-sync
+          add-paths: |
+            src/mongoose.c
+            src/mongoose.h
+            .mongoose-version
