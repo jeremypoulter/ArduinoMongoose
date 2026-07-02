@@ -60,6 +60,7 @@ jobs:
           gcovr \
             --root . \
             --filter '^src/' \
+            --exclude '^src/mongoose(\.c|\.h)$' \
             --object-directory tests/unit/.pio/build/native \
             --gcov-ignore-errors=source_not_found \
             --cobertura-pretty \
