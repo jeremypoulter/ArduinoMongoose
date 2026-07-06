@@ -104,6 +104,9 @@ void MongooseHttpClientRequest::handleEvent(mg_connection *nc, int ev, void *p)
         addr, hm->body.len, hm->body.buf);
 
       MongooseHttpClientResponse response(hm);
+      if(_onBody) {
+        _onBody(&response);
+      }
       if(_onResponse) {
         _onResponse(&response);
       }
