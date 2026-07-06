@@ -21,68 +21,24 @@ jobs:
       - name: Determine latest upstream tag
         id: detect
         shell: bash
-        run: |
-          set -euo pipefail
-
-          RELEASE_URL="https://api.github.com/repos/cesanta/mongoose/releases/latest"
-          TAGS_URL="https://api.github.com/repos/cesanta/mongoose/tags"
-          curl_common=(
-            -fsSL
-            -H "Accept: application/vnd.github+json"
-            -H "Authorization: Bearer ${{ github.token }}"
-            -H "User-Agent: github-actions"
-          )
-
-          release_json=$(curl "${curl_common[@]}" "$RELEASE_URL" || true)
-          latest_tag=$(jq -r '.tag_name // empty' <<<"$release_json")
-
-          if [ -z "$latest_tag" ]; then
-            tags_json=$(curl "${curl_common[@]}" "$TAGS_URL")
-            latest_tag=$(jq -r '.[0].name // empty' <<<"$tags_json")
-          fi
-
-          if [ -z "$latest_tag" ]; then
-            echo "Failed to determine latest upstream mongoose tag"
-            exit 1
-          fi
-
-          current_tag="unknown"
-          if [ -f .mongoose-version ]; then
-            current_tag=$(cat .mongoose-version)
-          fi
-
-          echo "latest_tag=$latest_tag" >> "$GITHUB_OUTPUT"
-          echo "current_tag=$current_tag" >> "$GITHUB_OUTPUT"
-
-          if [ "$latest_tag" = "$current_tag" ]; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "Mongoose already up to date: $current_tag"
-          else
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-            echo "Mongoose update available: $current_tag -> $latest_tag"
-          fi
+        run: ./.github/scripts/detect-mongoose-tag.sh
 
       - name: Update vendored files
         if: steps.detect.outputs.changed == 'true'
         shell: bash
-        run: |
-          set -euo pipefail
-
-          tag="${{ steps.detect.outputs.latest_tag }}"
-          base_url="https://raw.githubusercontent.com/cesanta/mongoose/$tag"
-
-          curl -fsSL "$base_url/mongoose.c" -o src/mongoose.c
-          curl -fsSL "$base_url/mongoose.h" -o src/mongoose.h
-          printf '%s\n' "$tag" > .mongoose-version
+        env:
+          LATEST_TAG: ${{ steps.detect.outputs.latest_tag }}
+        run: ./.github/scripts/update-vendored-mongoose.sh
 
       - name: Exit neutrally when no update is needed
         if: steps.detect.outputs.changed != 'true'
         uses: actions/github-script@v8
+        env:
+          CURRENT_TAG: ${{ steps.detect.outputs.current_tag }}
         with:
           script: |
-            const currentTag = '${{ steps.detect.outputs.current_tag }}'
-            core.notice(`No vendored Mongoose update needed. Current tag: ${currentTag}`)
-            core.setNeutral('No upstream Mongoose version change detected.')
+            const run = require('./.github/scripts/no-update-neutral.js')
+            await run({ core })
 
       - name: Create pull request
         if: steps.detect.outputs.changed == 'true'
@@ -110,40 +66,11 @@ jobs:
       - name: Close superseded updater PRs
         if: steps.detect.outputs.changed == 'true'
         uses: actions/github-script@v8
+        env:
+          LATEST_TAG: ${{ steps.detect.outputs.latest_tag }}
+          CURRENT_PR_NUMBER: ${{ steps.cpr.outputs.pull-request-number }}
+          CURRENT_PR_URL: ${{ steps.cpr.outputs.pull-request-url }}
         with:
           script: |
-            const owner = context.repo.owner
-            const repo = context.repo.repo
-            const latestTag = '${{ steps.detect.outputs.latest_tag }}'
-            const currentBranch = `ci/update-mongoose-${latestTag}`
-            const currentPrNumber = Number('${{ steps.cpr.outputs.pull-request-number }}' || '0')
-            const currentPrUrl = '${{ steps.cpr.outputs.pull-request-url }}'
-            const replacementRef = currentPrUrl || `#${currentPrNumber}`
-
-            const openPrs = await github.paginate(github.rest.pulls.list, {
-              owner,
-              repo,
-              state: 'open',
-              base: 'mongoose_7',
-              per_page: 100
-            })
-
-            for (const pr of openPrs) {
-              if (!pr.head.ref.startsWith('ci/update-mongoose-')) continue
-              if (pr.head.ref === currentBranch) continue
-              if (currentPrNumber > 0 && pr.number === currentPrNumber) continue
-
-              await github.rest.issues.createComment({
-                owner,
-                repo,
-                issue_number: pr.number,
-                body: `Closing in favor of ${replacementRef}, which updates vendored Mongoose to \`${latestTag}\`.`
-              })
-
-              await github.rest.pulls.update({
-                owner,
-                repo,
-                pull_number: pr.number,
-                state: 'closed'
-              })
-            }
+            const run = require('./.github/scripts/close-superseded-mongoose-prs.js')
+            await run({ github, context })
