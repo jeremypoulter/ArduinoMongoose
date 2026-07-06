@@ -6,8 +6,6 @@ on:
 
 permissions:
   contents: read
-  checks: write
-  pull-requests: write
 
 jobs:
   native-tests:
@@ -66,6 +64,31 @@ jobs:
             --cobertura-pretty \
             --output tests/unit/test-results/coverage.xml
 
+      - name: Upload native test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-test-artifacts
+          path: |
+            tests/unit/test-results/native-junit.xml
+            tests/unit/test-results/coverage.xml
+
+  publish-reports:
+    if: always()
+    needs: native-tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
+    steps:
+      - name: Download native test artifacts
+        if: always()
+        uses: actions/download-artifact@v4
+        with:
+          name: native-test-artifacts
+          path: tests/unit/test-results
+
       - name: Publish native test results
         if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && hashFiles('tests/unit/test-results/native-junit.xml') != ''
         uses: EnricoMi/publish-unit-test-result-action@v2
@@ -90,13 +113,3 @@ jobs:
           header: native-coverage-report
           path: code-coverage-results.md
           skip_unchanged: true
-
-      - name: Upload native test artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: native-test-artifacts
-          path: |
-            tests/unit/test-results/native-junit.xml
-            tests/unit/test-results/coverage.xml
-            code-coverage-results.md

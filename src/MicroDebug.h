@@ -28,6 +28,7 @@
 #else
 
 #include <stdio.h>
+#include <iostream>
 
 #ifndef DBUGF
 #define DBUGF(...)             \
@@ -40,14 +41,14 @@
 #ifndef DBUGLN
 #define DBUGLN(msg)            \
   do {                         \
-    fprintf(stderr, "%s\n", msg); \
+    std::cerr << msg << std::endl; \
   } while (0)
 #endif
 
 #ifndef DBUGVAR
 #define DBUGVAR(value)                         \
   do {                                         \
-    fprintf(stderr, "%s=%s\n", #value, value); \
+    std::cerr << #value << "=" << (value) << std::endl; \
   } while (0)
 #endif
 
