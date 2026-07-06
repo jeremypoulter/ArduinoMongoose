@@ -8,6 +8,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  issues: write
 
 jobs:
   update-mongoose:
@@ -15,7 +16,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Determine latest upstream tag
         id: detect
@@ -74,15 +75,25 @@ jobs:
           curl -fsSL "$base_url/mongoose.h" -o src/mongoose.h
           printf '%s\n' "$tag" > .mongoose-version
 
+      - name: Exit neutrally when no update is needed
+        if: steps.detect.outputs.changed != 'true'
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const currentTag = '${{ steps.detect.outputs.current_tag }}'
+            core.notice(`No vendored Mongoose update needed. Current tag: ${currentTag}`)
+            core.setNeutral('No upstream Mongoose version change detected.')
+
       - name: Create pull request
         if: steps.detect.outputs.changed == 'true'
-        uses: peter-evans/create-pull-request@v7
+        id: cpr
+        uses: peter-evans/create-pull-request@v9
         with:
           base: mongoose_7
           branch: ci/update-mongoose-${{ steps.detect.outputs.latest_tag }}
           delete-branch: true
-          commit-message: chore: update mongoose to ${{ steps.detect.outputs.latest_tag }}
-          title: chore: update mongoose to ${{ steps.detect.outputs.latest_tag }}
+          commit-message: "chore: update mongoose to ${{ steps.detect.outputs.latest_tag }}"
+          title: "chore: update mongoose to ${{ steps.detect.outputs.latest_tag }}"
           body: |
             This PR updates vendored Mongoose sources to `${{ steps.detect.outputs.latest_tag }}`.
 
@@ -95,3 +106,44 @@ jobs:
             src/mongoose.c
             src/mongoose.h
             .mongoose-version
+
+      - name: Close superseded updater PRs
+        if: steps.detect.outputs.changed == 'true'
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const owner = context.repo.owner
+            const repo = context.repo.repo
+            const latestTag = '${{ steps.detect.outputs.latest_tag }}'
+            const currentBranch = `ci/update-mongoose-${latestTag}`
+            const currentPrNumber = Number('${{ steps.cpr.outputs.pull-request-number }}' || '0')
+            const currentPrUrl = '${{ steps.cpr.outputs.pull-request-url }}'
+            const replacementRef = currentPrUrl || `#${currentPrNumber}`
+
+            const openPrs = await github.paginate(github.rest.pulls.list, {
+              owner,
+              repo,
+              state: 'open',
+              base: 'mongoose_7',
+              per_page: 100
+            })
+
+            for (const pr of openPrs) {
+              if (!pr.head.ref.startsWith('ci/update-mongoose-')) continue
+              if (pr.head.ref === currentBranch) continue
+              if (currentPrNumber > 0 && pr.number === currentPrNumber) continue
+
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: pr.number,
+                body: `Closing in favor of ${replacementRef}, which updates vendored Mongoose to \`${latestTag}\`.`
+              })
+
+              await github.rest.pulls.update({
+                owner,
+                repo,
+                pull_number: pr.number,
+                state: 'closed'
+              })
+            }
