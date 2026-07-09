@@ -212,12 +212,13 @@ struct UploadCapture {
 }  // namespace
 
 // ---------------------------------------------------------------------------
-// test_streaming_multipart_upload_basic
-// Verify that a small multipart POST is dispatched correctly via the
-// streaming (MG_EV_HTTP_HDRS) path: PART_BEGIN → PART_DATA → PART_END.
-// The response is sent from the onUpload callback (matching the OTA pattern).
+// test_multipart_upload_basic
+// Verify that a small multipart/form-data POST is dispatched correctly via
+// mg_http_next_multipart() (the Mongoose 7 multipart API):
+// PART_BEGIN → PART_DATA → PART_END.
+// The response is sent from the onUpload callback.
 // ---------------------------------------------------------------------------
-static void test_streaming_multipart_upload_basic()
+static void test_multipart_upload_basic()
 {
   ScopedMongoose mongoose;
   MongooseHttpServer server;
@@ -244,7 +245,7 @@ static void test_streaming_multipart_upload_basic()
         return 0;
       });
 
-  const char *payload = "Hello, streaming world!";
+  const char *payload = "Hello, upload world!";
   MultipartBody mp = buildMultipart("testbdy", "hello.txt",
                                     payload, strlen(payload));
 
@@ -265,12 +266,10 @@ static void test_streaming_multipart_upload_basic()
         "upload request timed out");
   }
 
-  // Verify upload events
   TEST_ASSERT_EQUAL(200, capture.code);
   TEST_ASSERT_TRUE(capture.requestHandlerCalled);
   TEST_ASSERT_EQUAL_STRING(payload, capture.data.c_str());
 
-  // Must have seen at least one PART_BEGIN, PART_DATA, PART_END
   bool sawBegin = false, sawData = false, sawEnd = false;
   for(int ev : capture.events) {
     if(ev == MG_EV_HTTP_PART_BEGIN) sawBegin = true;
@@ -283,10 +282,10 @@ static void test_streaming_multipart_upload_basic()
 }
 
 // ---------------------------------------------------------------------------
-// test_streaming_multipart_upload_filename
+// test_multipart_upload_filename
 // Verify that the filename reported in upload callbacks matches what was sent.
 // ---------------------------------------------------------------------------
-static void test_streaming_multipart_upload_filename()
+static void test_multipart_upload_filename()
 {
   ScopedMongoose mongoose;
   MongooseHttpServer server;
@@ -329,11 +328,11 @@ static void test_streaming_multipart_upload_filename()
 }
 
 // ---------------------------------------------------------------------------
-// test_streaming_multipart_upload_auth_rejection
+// test_multipart_upload_auth_rejection
 // Verify that if onRequest rejects the upload (sends 401), no PART_* events
 // are dispatched afterwards.
 // ---------------------------------------------------------------------------
-static void test_streaming_multipart_upload_auth_rejection()
+static void test_multipart_upload_auth_rejection()
 {
   ScopedMongoose mongoose;
   MongooseHttpServer server;
@@ -343,7 +342,6 @@ static void test_streaming_multipart_upload_auth_rejection()
 
   server.on("/secure_upload", HTTP_POST)
     ->onRequest([](MongooseHttpServerRequest *request) {
-        // Always reject
         request->send(401, "text/plain", "Unauthorized");
       })
     ->onUpload([&uploadCalled](MongooseHttpServerRequest * /*request*/, int /*ev*/,
@@ -378,27 +376,89 @@ static void test_streaming_multipart_upload_auth_rejection()
 }
 
 // ---------------------------------------------------------------------------
-// test_streaming_multipart_upload_large_payload
-// Send a payload larger than a typical Mongoose receive buffer to verify
-// that the streaming path processes data in multiple chunks.
+// test_raw_body_upload_basic
+// Verify that a raw (non-multipart) POST body is streamed incrementally to
+// the upload handler: PART_BEGIN → one or more PART_DATA → PART_END.
+// This path uses the same escape-hatch mechanism as mg_http_start_upload()
+// so the upload handler receives data without buffering the full body first.
 // ---------------------------------------------------------------------------
-static void test_streaming_multipart_upload_large_payload()
+static void test_raw_body_upload_basic()
 {
   ScopedMongoose mongoose;
   MongooseHttpServer server;
   TEST_ASSERT_TRUE(server.begin(18085));
 
-  // 64 KB of repeating 'A' – well above any single receive-buffer fill.
+  UploadCapture capture;
+
+  server.on("/raw_upload", HTTP_POST)
+    ->onRequest([&capture](MongooseHttpServerRequest * /*request*/) {
+        capture.requestHandlerCalled = true;
+      })
+    ->onUpload([&capture](MongooseHttpServerRequest *request, int ev,
+                           MongooseString /*filename*/, uint64_t /*index*/,
+                           uint8_t *data, size_t len) -> size_t {
+        capture.events.push_back(ev);
+        if(ev == MG_EV_HTTP_PART_DATA && data && len > 0) {
+          capture.data.append((const char *)data, len);
+        }
+        if(ev == MG_EV_HTTP_PART_END) {
+          request->send(200, "text/plain", "Raw OK");
+        }
+        return 0;
+      });
+
+  const char *payload = "Raw binary firmware data";
+  {
+    MongooseHttpClientRequest *req =
+        new MongooseHttpClientRequest("http://127.0.0.1:18085/raw_upload");
+    req->setMethod(HTTP_POST);
+    req->setContentType("application/octet-stream");
+    req->setContent((const uint8_t *)payload, strlen(payload));
+    req->onResponse([&capture](MongooseHttpClientResponse *response) {
+      capture.responded = true;
+      capture.code      = response->respCode();
+    });
+    req->onClose([&capture]() { capture.closed = true; });
+    TEST_ASSERT_TRUE(req->send());
+    TEST_ASSERT_TRUE_MESSAGE(
+        pumpUntil([&capture]() { return capture.closed; }, 3000),
+        "raw_upload request timed out");
+  }
+
+  TEST_ASSERT_EQUAL(200, capture.code);
+  TEST_ASSERT_TRUE(capture.requestHandlerCalled);
+  TEST_ASSERT_EQUAL_STRING(payload, capture.data.c_str());
+
+  bool sawBegin = false, sawData = false, sawEnd = false;
+  for(int ev : capture.events) {
+    if(ev == MG_EV_HTTP_PART_BEGIN) sawBegin = true;
+    if(ev == MG_EV_HTTP_PART_DATA)  sawData  = true;
+    if(ev == MG_EV_HTTP_PART_END)   sawEnd   = true;
+  }
+  TEST_ASSERT_TRUE_MESSAGE(sawBegin, "raw upload: expected PART_BEGIN event");
+  TEST_ASSERT_TRUE_MESSAGE(sawData,  "raw upload: expected PART_DATA event");
+  TEST_ASSERT_TRUE_MESSAGE(sawEnd,   "raw upload: expected PART_END event");
+}
+
+// ---------------------------------------------------------------------------
+// test_raw_body_upload_large
+// Send a large payload (64 KB) as a raw binary POST and verify all bytes are
+// delivered correctly to the upload handler via streaming MG_EV_READ events.
+// ---------------------------------------------------------------------------
+static void test_raw_body_upload_large()
+{
+  ScopedMongoose mongoose;
+  MongooseHttpServer server;
+  TEST_ASSERT_TRUE(server.begin(18086));
+
   const size_t PAYLOAD_SIZE = 64 * 1024;
   std::string payload(PAYLOAD_SIZE, 'A');
 
   size_t totalReceived = 0;
   int    dataCallCount = 0;
 
-  server.on("/big_upload", HTTP_POST)
-    ->onRequest([](MongooseHttpServerRequest * /*request*/) {
-        // Auth / init only – response is sent from onUpload.
-      })
+  server.on("/big_raw_upload", HTTP_POST)
+    ->onRequest([](MongooseHttpServerRequest * /*request*/) { })
     ->onUpload([&totalReceived, &dataCallCount](
                    MongooseHttpServerRequest *request, int ev,
                    MongooseString /*filename*/, uint64_t /*index*/,
@@ -408,22 +468,19 @@ static void test_streaming_multipart_upload_large_payload()
           dataCallCount++;
         }
         if(ev == MG_EV_HTTP_PART_END) {
-          request->send(200, "text/plain", "Big OK");
+          request->send(200, "text/plain", "Big Raw OK");
         }
         return 0;
       });
-
-  MultipartBody mp = buildMultipart("bigbnd", "big.bin",
-                                    payload.c_str(), payload.size());
 
   bool closed = false;
   int  code   = 0;
   {
     MongooseHttpClientRequest *req =
-        new MongooseHttpClientRequest("http://127.0.0.1:18085/big_upload");
+        new MongooseHttpClientRequest("http://127.0.0.1:18086/big_raw_upload");
     req->setMethod(HTTP_POST);
-    req->setContentType(mp.contentType.c_str());
-    req->setContent((const uint8_t *)mp.body.c_str(), mp.body.size());
+    req->setContentType("application/octet-stream");
+    req->setContent((const uint8_t *)payload.c_str(), payload.size());
     req->onResponse([&code](MongooseHttpClientResponse *response) {
       code = response->respCode();
     });
@@ -431,20 +488,20 @@ static void test_streaming_multipart_upload_large_payload()
     TEST_ASSERT_TRUE(req->send());
     TEST_ASSERT_TRUE_MESSAGE(
         pumpUntil([&closed]() { return closed; }, 10000),
-        "big_upload request timed out");
+        "big_raw_upload request timed out");
   }
 
   TEST_ASSERT_EQUAL(200, code);
   TEST_ASSERT_EQUAL(PAYLOAD_SIZE, totalReceived);
-  // Streaming: data should have been delivered in at least one call.
   TEST_ASSERT_GREATER_THAN(0, dataCallCount);
 }
 
 void runHttpServerTests() {
   RUN_TEST(test_http_server_routes_and_not_found);
   RUN_TEST(test_http_server_authentication_and_challenge);
-  RUN_TEST(test_streaming_multipart_upload_basic);
-  RUN_TEST(test_streaming_multipart_upload_filename);
-  RUN_TEST(test_streaming_multipart_upload_auth_rejection);
-  RUN_TEST(test_streaming_multipart_upload_large_payload);
+  RUN_TEST(test_multipart_upload_basic);
+  RUN_TEST(test_multipart_upload_filename);
+  RUN_TEST(test_multipart_upload_auth_rejection);
+  RUN_TEST(test_raw_body_upload_basic);
+  RUN_TEST(test_raw_body_upload_large);
 }
