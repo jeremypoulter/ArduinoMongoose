@@ -58,7 +58,7 @@ void MongooseMqttClient::handleEvent(mg_connection *nc, int ev, void *p)
         DBUGF("Got mqtt connection error: %d", connack_status_code);
         char buf[100];
         snprintf(buf, sizeof(buf), "MQTT connection error: %d", connack_status_code);
-        onError(nc, buf);
+        MongooseSocket::onError(nc, buf);
       }
       break;
     }
@@ -106,6 +106,8 @@ bool MongooseMqttClient::connect(MongooseMqttProtocol protocol, const char *serv
 
     if(MQTT_MQTTS == protocol) {
       setSecure(server);
+    } else {
+      clearSecurity();
     }
 
     if(MongooseSocket::connect(
@@ -114,7 +116,7 @@ bool MongooseMqttClient::connect(MongooseMqttProtocol protocol, const char *serv
       return true;
     }
 
-    DBUGF("Failed to connect to %s: %s", server, err);
+    DBUGF("Failed to connect to %s", server);
   }
   return false;
 }

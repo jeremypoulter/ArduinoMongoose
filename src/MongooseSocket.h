@@ -72,11 +72,27 @@ class MongooseSocket
       _reject_unauthorized = reject;
     }
 
+    void clearSecurity() {
+      _secure = false;
+      _reject_unauthorized = true;
+      _host = (const char *) nullptr;
+      _cert = (const char *) nullptr;
+      _key = (const char *) nullptr;
+    }
+
+    void clearConnection() {
+      _nc = nullptr;
+    }
+
     void disconnect() {
-      _nc->is_draining = 1;
+      if(_nc) {
+        _nc->is_draining = 1;
+      }
     }
     void abort() {
-      _nc->is_closing = 1;
+      if(_nc) {
+        _nc->is_closing = 1;
+      }
     }
 
   public:

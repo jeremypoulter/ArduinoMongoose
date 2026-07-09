@@ -29,9 +29,30 @@ class MongooseSntpClient : public MongooseSocket
     MongooseSntpClient();
     ~MongooseSntpClient();
 
+  MongooseSntpClient *onTime(MongooseSntpTimeHandler handler) {
+    _onTime = handler;
+    return this;
+  }
+
+  MongooseSntpClient *onError(MongooseSocketErrorHandler fnHandler) {
+    MongooseSocket::onError(fnHandler);
+    return this;
+  }
+
+  MongooseSntpClient *onClose(MongooseSocketCloseHandler fnHandler) {
+    MongooseSocket::onClose(fnHandler);
+    return this;
+  }
+
+  bool getTime(const char *server) {
+    return getTime(server, _onTime);
+  }
   bool getTime(const char *server, MongooseSntpTimeHandler onTime);
 
 #ifdef ARDUINO
+  bool getTime(String &server) {
+    return getTime(server.c_str(), _onTime);
+  }
   bool getTime(String &server, MongooseSntpTimeHandler onTime) {
     return getTime(server.c_str(), onTime);
   }

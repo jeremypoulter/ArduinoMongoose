@@ -9,6 +9,8 @@
 #include <mongoose.h>
 #include <functional>
 
+#include "MongooseSocket.h"
+
 // Forward declarations
 class MongooseWebSocketClient;
 
@@ -28,8 +30,12 @@ typedef std::function<void(int flags, const uint8_t *data, size_t len)> Mongoose
 typedef std::function<void(int code, const char *reason)> MongooseWebSocketCloseHandler;
 
 /**
- * @brief WebSocket client following MicroOcppMongooseClient patterns
+ * @brief WebSocket client with fluent lifecycle handlers and automatic reconnect
  * 
+ * Prefer registering lifecycle handlers up-front with onError()/onClose() and
+ * onOpen()/onMessage()/setOnClose(), then call connect(). MQTT and SNTP
+ * also support this registration style via additive overloads.
+ *
  * Provides reliable WebSocket connectivity with:
  * - Automatic reconnection with exponential backoff
  * - Heartbeat monitoring (PING/PONG)
@@ -46,13 +52,9 @@ typedef std::function<void(int code, const char *reason)> MongooseWebSocketClose
  *   // In loop():
  *   client.loop();  // Handles reconnection, ping, etc.
  */
-class MongooseWebSocketClient
+class MongooseWebSocketClient : public MongooseSocket
 {
   private:
-    // Mongoose connection
-    struct mg_mgr *_mgr;
-    struct mg_connection *_nc;
-    
     // Connection state
     enum class State {
       DISCONNECTED,
@@ -84,18 +86,19 @@ class MongooseWebSocketClient
     MongooseWebSocketOpenHandler _onOpen;
     MongooseWebSocketMessageHandler _onMessage;
     MongooseWebSocketCloseHandler _onClose;
-    
-    // Static event handler (mongoose callback)
-    static void eventHandler(struct mg_connection *nc, int ev, void *ev_data);
-    
-    // Instance event handler
-    void handleEvent(struct mg_connection *nc, int ev, void *ev_data);
-    
+
     // Internal helpers
     void cleanupConnection();
     void attemptReconnect();
     void sendPing();
     bool isStale();
+
+  protected:
+    void onConnect(mg_connection *nc);
+    void onPoll(mg_connection *nc);
+    void onError(mg_connection *nc, const char *error);
+    void onClose(mg_connection *nc);
+    void handleEvent(struct mg_connection *nc, int ev, void *ev_data);
     
   public:
     MongooseWebSocketClient();
@@ -109,7 +112,6 @@ class MongooseWebSocketClient
      * @return true if connection initiated, false on error
      */
     bool connect(const char *url, const char *protocol = nullptr, const char *extraHeaders = nullptr);
-    
 #ifdef ARDUINO
     bool connect(const String &url, const char *protocol = nullptr, const char *extraHeaders = nullptr) {
       return connect(url.c_str(), protocol, extraHeaders);
@@ -137,7 +139,6 @@ class MongooseWebSocketClient
      * @return true if sent successfully
      */
     bool sendTXT(const char *msg, size_t length);
-    
 #ifdef ARDUINO
     bool sendTXT(const String &msg) {
       return sendTXT(msg.c_str(), msg.length());
@@ -160,6 +161,11 @@ class MongooseWebSocketClient
     void setOnOpen(MongooseWebSocketOpenHandler handler) {
       _onOpen = handler;
     }
+
+    MongooseWebSocketClient *onOpen(MongooseWebSocketOpenHandler handler) {
+      setOnOpen(handler);
+      return this;
+    }
     
     /**
      * @brief Register callback for incoming messages
@@ -179,6 +185,11 @@ class MongooseWebSocketClient
     void setOnMessage(MongooseWebSocketMessageHandler handler) {
       _onMessage = handler;
     }
+
+    MongooseWebSocketClient *onMessage(MongooseWebSocketMessageHandler handler) {
+      setOnMessage(handler);
+      return this;
+    }
     
     /**
      * @brief Register callback for connection close
@@ -186,6 +197,16 @@ class MongooseWebSocketClient
      */
     void setOnClose(MongooseWebSocketCloseHandler handler) {
       _onClose = handler;
+    }
+
+    MongooseWebSocketClient *onError(MongooseSocketErrorHandler handler) {
+      MongooseSocket::onError(handler);
+      return this;
+    }
+
+    MongooseWebSocketClient *onClose(MongooseSocketCloseHandler handler) {
+      MongooseSocket::onClose(handler);
+      return this;
     }
     
     /**
@@ -195,11 +216,8 @@ class MongooseWebSocketClient
       return _state == State::CONNECTED;
     }
 
-    /**
-     * @brief Alias for isConnectionOpen() for API consistency
-     */
-    bool connected() const {
-      return isConnectionOpen();
+    bool connected() override {
+      return MongooseSocket::connected() && _state == State::CONNECTED;
     }
     
     /**

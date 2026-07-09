@@ -8,6 +8,8 @@
 
 #include <MicroDebug.h>
 #include <algorithm>
+#include <cstring>
+#include <vector>
 
 #include "MongooseHttpServerRequest.h"
 #include "MongooseHttpServerEndpoint.h"
@@ -307,12 +309,15 @@ void MongooseHttpServerRequest::requestAuthentication(const char* realm)
   // https://github.com/me-no-dev/ESPAsyncWebServer/blob/master/src/WebRequest.cpp#L852
   // mg_http_send_digest_auth_request
 
-  char headers[64];
-  mg_snprintf(headers, sizeof(headers), 
-      "WWW-Authenticate: Basic realm=%s",
-      realm);
+  const char *safeRealm = realm != nullptr ? realm : "";
+  size_t headerLength = strlen("WWW-Authenticate: Basic realm=\r\n") +
+      strlen(safeRealm) + 1;
+  std::vector<char> headers(headerLength);
+  mg_snprintf(headers.data(), headers.size(),
+      "WWW-Authenticate: Basic realm=%s\r\n",
+      safeRealm);
 
-  mg_http_reply(getConnection(), 401, headers, "");
+  mg_http_reply(getConnection(), 401, headers.data(), "");
   getConnection()->is_draining = 1;
 
   _responseSent = true;
