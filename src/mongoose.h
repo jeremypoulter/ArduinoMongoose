@@ -1732,21 +1732,10 @@ void mg_free(void *ptr);
 // sensitive data (keys, passwords).
 void mg_bzero(volatile unsigned char *buf, size_t len);
 
-typedef bool (*mg_random_fn_t)(void *buf, size_t len);
-
-// Sets a custom cryptographic random source used by mg_random() and TLS code.
-// Pass NULL to restore the built-in platform default.
-void mg_random_set(mg_random_fn_t fn);
-
-// Returns the currently configured custom random source, or NULL when using
-// the built-in platform default.
-mg_random_fn_t mg_random_get(void);
-
 // Fills buf with len cryptographically random bytes. Uses the best available
 // hardware or OS source (hardware RNG, /dev/urandom, CryptGenRandom, etc.).
 // Falls back to rand() with an error log if no strong source is available.
 // Returns true when a strong source was used, false on fallback to rand().
-// Applications may install a custom source with mg_random_set().
 // Override by defining MG_ENABLE_CUSTOM_RANDOM=1 and providing your own impl.
 bool mg_random(void *buf, size_t len);
 

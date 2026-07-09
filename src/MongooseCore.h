@@ -12,7 +12,6 @@
 #endif
 
 typedef std::function<const char *(void)> ArduinoMongooseGetRootCaCallback;
-typedef mg_random_fn_t ArduinoMongooseRandomCallback;
 
 class MongooseCore
 {
@@ -45,19 +44,6 @@ class MongooseCore
 
     void setRootCaCallback(ArduinoMongooseGetRootCaCallback callback) {
       _rootCaCallback = callback;
-    }
-
-    // Replacement for older mg_ssl_if_mbed_random()-style hooks.
-    ArduinoMongooseRandomCallback getRandomCallback() {
-      return mg_random_get();
-    }
-
-    void setRandomCallback(ArduinoMongooseRandomCallback callback) {
-      mg_random_set(callback);
-    }
-
-    bool fillRandom(void *buf, size_t len) {
-      return mg_random(buf, len);
     }
 };
 

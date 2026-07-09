@@ -4,28 +4,19 @@
 
 A wrapper for Mongoose to help build into Arduino framework.
 
-## TLS entropy / RNG overrides
+## TLS entropy / RNG behaviour
 
-TLS uses `mg_random()` for cryptographic randomness. By default this uses the
-best built-in source available for the current platform (for example
-`/dev/urandom` on native builds and the ESP32 hardware RNG on ESP32 builds).
+TLS uses Mongoose's built-in `mg_random()` implementation for cryptographic
+randomness. On supported targets it uses the strongest platform source Mongoose
+has available, such as `/dev/urandom` on native builds and the ESP32 hardware
+RNG on ESP32 builds.
 
-To provide a custom entropy source without forking the library, install a
-callback before opening secure connections:
+If Mongoose cannot access a strong platform RNG on a target, it logs an error
+and falls back to `rand()`. That fallback is not appropriate for production TLS
+use, so security-sensitive deployments should run on a platform with a strong
+built-in RNG or provide an upstream-supported custom `mg_random()`
+implementation via `MG_ENABLE_CUSTOM_RANDOM=1`.
 
-```cpp
-static bool fillEntropy(void *buf, size_t len) {
-  esp_fill_random(buf, len);
-  return true;
-}
-
-void setup() {
-  Mongoose.setRandomCallback(fillEntropy);
-}
-```
-
-If you previously overrode `mg_ssl_if_mbed_random()` in older Mongoose-based
-code, use this callback instead.
-
-Pass `nullptr` to `Mongoose.setRandomCallback()` to restore the built-in
-platform default.
+ArduinoMongoose does not add a wrapper-specific runtime RNG override API, which
+keeps future Mongoose updates straightforward without patching vendored
+`mongoose.c` / `mongoose.h`.
