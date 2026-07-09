@@ -25,6 +25,20 @@
 #define MG_COPY_HTTP_MESSAGE 1
 #endif
 
+// HTTP keep-alive. Connections are reused for further requests when the
+// client supports it, instead of being closed after every response. An idle
+// kept-alive connection is closed after ARDUINO_MONGOOSE_KEEPALIVE_TIMEOUT
+// seconds. Keep-alive is not offered while the manager already has more than
+// ARDUINO_MONGOOSE_KEEPALIVE_MAX_CONNECTIONS connections — embedded TCP/IP
+// stacks have small connection pools (LWIP defaults to 16 on ESP32) and
+// parked connections would starve them.
+#ifndef ARDUINO_MONGOOSE_KEEPALIVE_TIMEOUT
+#define ARDUINO_MONGOOSE_KEEPALIVE_TIMEOUT 30
+#endif
+#ifndef ARDUINO_MONGOOSE_KEEPALIVE_MAX_CONNECTIONS
+#define ARDUINO_MONGOOSE_KEEPALIVE_MAX_CONNECTIONS 8
+#endif
+
 class MongooseHttpServer;
 class MongooseHttpServerRequest;
 class MongooseHttpServerResponse;
@@ -48,9 +62,14 @@ class MongooseHttpServerRequest {
     HttpRequestMethodComposite _method;
     MongooseHttpServerResponse *_response;
     bool _responseSent;
+    bool _keepAlive;
+    bool _completed;
 
     void sendBody();
     bool bodyAllowed(int code);
+    // Mark the response finished: close the connection (legacy mode) or arm
+    // the idle timer and leave it open for the next request (keep-alive).
+    void completeRequest();
 
 #if MG_COPY_HTTP_MESSAGE
     http_message *duplicateMessage(http_message *);
@@ -62,6 +81,20 @@ class MongooseHttpServerRequest {
 
     virtual bool isUpload() { return false; }
     virtual bool isWebSocket() { return false; }
+
+    // True when the connection will be kept open for further requests after
+    // this response completes.
+    bool keepAlive() const {
+      return _keepAlive;
+    }
+    // Close the connection after this response even if the client asked for
+    // keep-alive. Call before sending the response.
+    void forceClose() {
+      _keepAlive = false;
+    }
+    bool completed() const {
+      return _completed;
+    }
 
     HttpRequestMethodComposite method() {
       return _method;
@@ -191,6 +224,9 @@ class MongooseHttpServerRequestUpload : public MongooseHttpServerRequest
       MongooseHttpServerRequest(server, nc, msg),
       index(0)
     {
+      // Multipart uploads keep the close-per-request lifecycle: consumers use
+      // the connection-close event to finalise the upload.
+      _keepAlive = false;
     }
     virtual ~MongooseHttpServerRequestUpload() {
     }
@@ -207,6 +243,9 @@ class MongooseHttpServerResponse
 
     char * _headerBuffer;
 
+  protected:
+    bool _keepAlive;
+
   public:
     MongooseHttpServerResponse();
     virtual ~MongooseHttpServerResponse();
@@ -217,6 +256,9 @@ class MongooseHttpServerResponse
     void setContentType(const char *contentType);
     void setContentLength(int64_t contentLength) {
       _contentLength = contentLength;
+    }
+    void setKeepAlive(bool keepAlive) {
+      _keepAlive = keepAlive;
     }
 
     bool addHeader(const char *name, const char *value);
@@ -373,6 +415,7 @@ class MongooseHttpServer
   protected:
     struct mg_connection *nc;
     MongooseHttpServerEndpoint defaultEndpoint;
+    bool _keepAliveEnabled;
 
     static void defaultEventHandler(struct mg_connection *nc, int ev, void *p, void *u);
     static void endpointEventHandler(struct mg_connection *nc, int ev, void *p, void *u);
@@ -396,6 +439,14 @@ class MongooseHttpServer
     void onNotFound(MongooseHttpRequestHandler fn);
 
     void reset();
+
+    // Runtime switch for HTTP keep-alive (on by default).
+    void enableKeepAlive(bool enable) {
+      _keepAliveEnabled = enable;
+    }
+    // Whether a new request may hold its connection open: keep-alive enabled
+    // and the connection pool not under pressure.
+    bool allowKeepAlive();
 
 #if MG_ENABLE_HTTP_WEBSOCKET
     void sendAll(MongooseHttpWebSocketConnection *from, const char *endpoint, int op, const void *data, size_t len);
