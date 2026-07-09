@@ -25420,9 +25420,20 @@ void mg_bzero(volatile unsigned char *buf, size_t len) {
   }
 }
 
+static mg_random_fn_t s_random_fn = NULL;
+
+void mg_random_set(mg_random_fn_t fn) {
+  s_random_fn = fn;
+}
+
+mg_random_fn_t mg_random_get(void) {
+  return s_random_fn;
+}
+
 #if MG_ENABLE_CUSTOM_RANDOM
 #else
 bool mg_random(void *buf, size_t len) {
+  if (s_random_fn != NULL) return s_random_fn(buf, len);
   bool success = false;
   unsigned char *p = (unsigned char *) buf;
 #if MG_ARCH == MG_ARCH_ESP32

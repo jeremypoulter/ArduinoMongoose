@@ -2,6 +2,7 @@
 
 void runMongooseStringTests();
 void runHttpMethodTests();
+void runRandomTests();
 void runHttpServerTests();
 void runHttpClientTests();
 void runHttpMessageTests();
@@ -17,6 +18,7 @@ int main(int argc, char **argv) {
   UNITY_BEGIN();
   runMongooseStringTests();
   runHttpMethodTests();
+  runRandomTests();
   runHttpServerTests();
   runHttpClientTests();
   runHttpMessageTests();
