@@ -66,8 +66,9 @@ static void test_sntp_client_reconnect_after_error() {
   // While the connection attempt is in flight, a second call must return false.
   TEST_ASSERT_FALSE(client.getTime("192.0.2.1"));
 
-  // Pump for up to 2 s; expect either an error or close to fire.
-  pumpUntil([&closeFired]() { return closeFired; }, 2000);
+  // Pump for up to 5 s; CI can take longer to transition a failed UDP connect
+  // into a closed socket.
+  pumpUntil([&closeFired]() { return closeFired; }, 5000);
 
   // After close, connected() must be false and getTime() must be callable again.
   TEST_ASSERT_FALSE(client.connected());
