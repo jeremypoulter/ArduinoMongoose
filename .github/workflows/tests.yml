@@ -1,0 +1,115 @@
+name: Unit Tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  native-tests:
+    runs-on: ubuntu-latest
+    services:
+      mosquitto:
+        image: eclipse-mosquitto:2
+        ports:
+          - 1883:1883
+    env:
+      ARDUINO_MONGOOSE_ENABLE_MQTT_TESTS: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+
+      - name: Install PlatformIO
+        run: |
+          pip install -U gcovr platformio
+          platformio update
+
+      - name: Wait for Mosquitto
+        run: |
+          python - <<'PY'
+          import socket
+          import time
+
+          deadline = time.time() + 30
+          while time.time() < deadline:
+              try:
+                  with socket.create_connection(("127.0.0.1", 1883), timeout=1):
+                      break
+              except OSError:
+                  time.sleep(1)
+          else:
+              raise SystemExit("Mosquitto service did not become ready")
+          PY
+
+      - name: Run native unit tests
+        run: |
+          cd tests/unit
+          mkdir -p test-results
+          pio test -e native --junit-output-path test-results/native-junit.xml
+
+      - name: Generate coverage reports
+        run: |
+          mkdir -p tests/unit/test-results
+          gcovr \
+            --root . \
+            --filter '^src/' \
+            --exclude '^src/mongoose(\.c|\.h)$' \
+            --object-directory tests/unit/.pio/build/native \
+            --gcov-ignore-errors=source_not_found \
+            --cobertura-pretty \
+            --output tests/unit/test-results/coverage.xml
+
+      - name: Upload native test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-test-artifacts
+          path: |
+            tests/unit/test-results/native-junit.xml
+            tests/unit/test-results/coverage.xml
+
+  publish-reports:
+    if: always()
+    needs: native-tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
+    steps:
+      - name: Download native test artifacts
+        if: always()
+        uses: actions/download-artifact@v4
+        with:
+          name: native-test-artifacts
+          path: tests/unit/test-results
+
+      - name: Publish native test results
+        if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && hashFiles('tests/unit/test-results/native-junit.xml') != ''
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        with:
+          check_name: Native unit test results
+          comment_title: Native unit test results
+          files: tests/unit/test-results/native-junit.xml
+
+      - name: Publish native coverage summary
+        if: always() && hashFiles('tests/unit/test-results/coverage.xml') != ''
+        uses: irongut/CodeCoverageSummary@v1.3.0
+        with:
+          filename: tests/unit/test-results/coverage.xml
+          badge: true
+          format: markdown
+          output: both
+
+      - name: Comment native coverage on pull request
+        if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && hashFiles('code-coverage-results.md') != ''
+        uses: marocchino/sticky-pull-request-comment@v3
+        with:
+          header: native-coverage-report
+          path: code-coverage-results.md
+          skip_unchanged: true

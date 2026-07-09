@@ -23,9 +23,10 @@
 - For quick validation, build the smallest set of examples affected by your change, and include at least one `native` build when possible.
 
 ## Testing guidance
-- There is no top-level unit test suite currently configured in this repository.
-- Validation is primarily done by compiling relevant examples with PlatformIO.
-- If a change affects HTTP server/client, MQTT, SNTP, or websocket behavior, build at least one representative example from that area.
+- Native unit tests live under `tests/unit` and can be run with `cd tests/unit && pio test -e native`.
+- All new production code should include unit tests, or update existing unit tests when extending behavior.
+- Validation should use the smallest relevant native unit test coverage first, then compile affected examples with PlatformIO as needed.
+- If a change affects HTTP server/client, MQTT, SNTP, or websocket behavior, add or update a representative unit test where practical and build at least one representative example from that area.
 
 ## PR and change reporting expectations
 - Summarize what changed, which examples/environments were built, and any limitations.
