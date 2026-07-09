@@ -151,12 +151,13 @@ void MongooseSocket::onConnect(mg_connection *nc)
 
   if (_secure)
   {
+    bool skip = !_reject_unauthorized;
     struct mg_tls_opts opts = {
       .ca = Mongoose.getRootCa(),
       .cert = _cert,
       .key = _key,
-      .name = _host,
-      .skip_verification = _reject_unauthorized ? false : true
+      .name = skip ? MongooseString() : _host,
+      .skip_verification = skip
     };
 
     mg_tls_init(nc, &opts);
@@ -180,6 +181,15 @@ void MongooseSocket::onAccept(mg_connection *nc)
   char addr[32];
   mg_snprintf(addr, sizeof(addr), "%M", mg_print_ip_port, &nc->rem);
   DBUGF("Accepted connection from %s", addr);
+
+  if (_secure)
+  {
+    struct mg_tls_opts opts = {
+      .cert = _cert,
+      .key = _key,
+    };
+    mg_tls_init(nc, &opts);
+  }
 }
 
 void MongooseSocket::onReceive(mg_connection *nc, long num_bytes)
