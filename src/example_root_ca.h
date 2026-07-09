@@ -1,8 +1,9 @@
-#ifndef root_ca_h
-#define root_ca_h
+#ifndef example_root_ca_h
+#define example_root_ca_h
 
-// Root CA bundle used by native HTTP client examples.
+// Root CA bundle for use in ArduinoMongoose examples that need HTTPS.
 // Includes common CAs needed for typical HTTPS endpoints.
+// Usage: const char *root_ca = ARDUINO_MONGOOSE_ROOT_CA_BUNDLE;
 #define ARDUINO_MONGOOSE_ROOT_CA_BUNDLE \
   /* Amazon Root CA 1, example of multiple Root CAs */ \
   "-----BEGIN CERTIFICATE-----\r\n" \
@@ -83,4 +84,4 @@
   "MrY=\r\n" \
   "-----END CERTIFICATE-----\r\n"
 
-#endif // root_ca_h
+#endif // example_root_ca_h

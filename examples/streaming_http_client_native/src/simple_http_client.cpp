@@ -8,7 +8,7 @@
 #include <MongooseCore.h>
 #include <MongooseHttpClient.h>
 
-#include "../../common/root_ca.h"
+#include <example_root_ca.h>
 
 MongooseHttpClient client;
 
