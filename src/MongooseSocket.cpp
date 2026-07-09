@@ -16,7 +16,12 @@
 MongooseSocket::MongooseSocket() :
   _nc(nullptr),
   _onError(nullptr),
-  _onClose(nullptr)
+  _onClose(nullptr),
+  _secure(false),
+  _reject_unauthorized(true),
+  _host(),
+  _cert(),
+  _key()
 {
 
 }
@@ -41,7 +46,9 @@ MongooseSocket::~MongooseSocket()
 void MongooseSocket::eventHandler(mg_connection *nc, int ev, void *p)
 {
   MongooseSocket *self = (MongooseSocket *)nc->fn_data;
-  self->processEvent(nc, ev, p);
+  if(self) {
+    self->processEvent(nc, ev, p);
+  }
 }
 
 void MongooseSocket::processEvent(mg_connection *nc, int ev, void *p)

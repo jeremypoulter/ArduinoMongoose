@@ -57,7 +57,7 @@ class MongooseString
 
     operator struct mg_str *()
     {
-      return &_string;
+      return _string.buf ? &_string : nullptr;
     }
 #define mg_str(s) mg_str_s(s)
 
@@ -97,16 +97,16 @@ class MongooseString
 //    MongooseString & operator = (const String &rhs);
 //    MongooseString & operator = (const __FlashStringHelper *str);
 
-    void get(const char * &p, size_t &len) {
+    void get(const char * &p, size_t &len) const {
       p = _string.buf;
       len = _string.len;
     }
 
-    size_t length() {
+    size_t length() const {
       return _string.len;
     }
 
-    const char *c_str()
+    const char *c_str() const
     {
       return _string.buf;
     }
@@ -174,7 +174,7 @@ class MongooseString
       return !equals(str);
     }
 
-    mg_str toMgStr() {
+    mg_str toMgStr() const {
       return _string;
     }
 

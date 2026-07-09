@@ -35,7 +35,7 @@ int main(int argc, char *argv[])
   Mongoose.begin();
 
   // Set up WebSocket event handlers
-  wsClient.setOnOpen([](MongooseWebSocketClient *client) {
+  wsClient.onOpen([](MongooseWebSocketClient *client) {
     printf("WebSocket connected!\n");
     
     // Send a test message once connected
@@ -44,7 +44,7 @@ int main(int argc, char *argv[])
     printf("Sent: %s\n", msg);
   });
 
-  wsClient.setReceiveTXTcallback([](int flags, const uint8_t *data, size_t len) {
+  wsClient.onMessage([](int flags, const uint8_t *data, size_t len) {
     // Print received message
     printf("Received: %.*s\n", (int)len, (const char*)data);
   });
@@ -80,7 +80,7 @@ int main(int argc, char *argv[])
     unsigned long now = mg_time() * 1000;  // Convert to milliseconds
     
     // Send a message every 10 seconds
-    if(wsClient.isConnectionOpen() && now >= next_send) {
+    if(wsClient.connected() && now >= next_send) {
       char msg[128];
       snprintf(msg, sizeof(msg), "Message #%d from native client", ++message_count);
       wsClient.sendTXT(msg, strlen(msg));
