@@ -15,6 +15,9 @@
 #include "MongooseHttpServerEndpointWebSocket.h"
 
 
+ /**
+  * @brief HTTP and WebSocket Server
+  */ 
 class MongooseHttpServer : public MongooseHttpServerConnection
 {
 

@@ -10,10 +10,16 @@
 #include "MongooseString.h"
 #include "MongooseSocket.h"
 
+ /**
+  * @brief SNTP Client wrapper
+  */ 
 class MongooseSntpClient;
 
 typedef std::function<void(struct timeval time)> MongooseSntpTimeHandler;
 
+ /**
+  * @brief SNTP Client wrapper
+  */ 
 class MongooseSntpClient : public MongooseSocket
 {
   private:

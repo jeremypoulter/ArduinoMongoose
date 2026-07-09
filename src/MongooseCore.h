@@ -13,6 +13,11 @@
 
 typedef std::function<const char *(void)> ArduinoMongooseGetRootCaCallback;
 
+/**
+ * @brief Core Mongoose manager for Arduino
+ * 
+ * Provides an initialization point and event loop wrapper for Mongoose.
+ */
 class MongooseCore
 {
   private:

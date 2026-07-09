@@ -19,6 +19,9 @@
 
 class MongooseHttpServerEndpoint;
 
+ /**
+  * @brief Represents an incoming HTTP request
+  */ 
 class MongooseHttpServerRequest : public MongooseHttpServerConnection, public MongooseHttpMessage
 {
   private:

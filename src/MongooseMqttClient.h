@@ -10,6 +10,9 @@
 #include "MongooseString.h"
 #include "MongooseSocket.h"
 
+ /**
+  * @brief MQTT Client wrapper
+  */ 
 class MongooseMqttClient;
 
 typedef std::function<void()> MongooseMqttConnectionHandler;
@@ -22,6 +25,9 @@ typedef enum {
   MQTT_WSS  // TODO
 } MongooseMqttProtocol;
 
+ /**
+  * @brief MQTT Client wrapper
+  */ 
 class MongooseMqttClient : public MongooseSocket
 {
   private:
