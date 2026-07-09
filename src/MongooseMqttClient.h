@@ -45,8 +45,14 @@ class MongooseMqttClient : public MongooseSocket
     MongooseMqttClient();
     ~MongooseMqttClient();
 
+    bool connect(const char *server, const char *client_id) {
+      return connect(MQTT_MQTT, server, client_id, _onConnect);
+    }
     bool connect(const char *server, const char *client_id, MongooseMqttConnectionHandler onConnect) {
       return connect(MQTT_MQTT, server, client_id, onConnect);
+    }
+    bool connect(MongooseMqttProtocol protocol, const char *server, const char *client_id) {
+      return connect(protocol, server, client_id, _onConnect);
     }
     bool connect(MongooseMqttProtocol protocol, const char *server, const char *client_id, MongooseMqttConnectionHandler onConnect);
 
@@ -62,8 +68,14 @@ class MongooseMqttClient : public MongooseSocket
     }
 
 #ifdef ARDUINO
+    bool connect(String &server, String &client_id) {
+      return connect(MQTT_MQTT, server.c_str(), client_id.c_str(), _onConnect);
+    }
     bool connect(String &server, String &client_id, MongooseMqttConnectionHandler onConnect) {
       return connect(MQTT_MQTT, server.c_str(), client_id.c_str(), onConnect);
+    }
+    bool connect(MongooseMqttProtocol protocol, String &server, String &client_id) {
+      return connect(protocol, server.c_str(), client_id.c_str(), _onConnect);
     }
     bool connect(MongooseMqttProtocol protocol, String &server, String &client_id, MongooseMqttConnectionHandler onConnect) {
       return connect(protocol, server.c_str(), client_id.c_str(), onConnect);
@@ -82,8 +94,24 @@ class MongooseMqttClient : public MongooseSocket
       return MongooseSocket::connected() &&  _connected;
     }
 
-    void onMessage(MongooseMqttMessageHandler fnHandler) {
+    MongooseMqttClient *onConnect(MongooseMqttConnectionHandler fnHandler) {
+      _onConnect = fnHandler;
+      return this;
+    }
+
+    MongooseMqttClient *onMessage(MongooseMqttMessageHandler fnHandler) {
       _onMessage = fnHandler;
+      return this;
+    }
+
+    MongooseMqttClient *onError(MongooseSocketErrorHandler fnHandler) {
+      MongooseSocket::onError(fnHandler);
+      return this;
+    }
+
+    MongooseMqttClient *onClose(MongooseSocketCloseHandler fnHandler) {
+      MongooseSocket::onClose(fnHandler);
+      return this;
     }
 
     bool subscribe(const char *topic);
