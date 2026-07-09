@@ -114,7 +114,103 @@ static void test_http_client_post_and_put_round_trip() {
   TEST_ASSERT_EQUAL_STRING("PUT", putCapture.replyHeader.c_str());
 }
 
+static void test_http_client_patch_and_delete() {
+  ScopedMongoose mongoose;
+  MongooseHttpServer server;
+  TEST_ASSERT_TRUE(server.begin(18086));
+
+  server.on("/resource", HTTP_PATCH | HTTP_DELETE, [](MongooseHttpServerRequest *request) {
+    std::string method(request->methodStr().c_str(), request->methodStr().length());
+    std::string body(request->body().c_str(), request->body().length());
+    std::string reply = method + ":" + (body.empty() ? "empty" : body);
+
+    MongooseHttpServerResponseBasic *response = request->beginResponse();
+    response->setCode(200);
+    response->setContentType("text/plain");
+    response->addHeader("X-Method", method.c_str());
+    response->setContent(reply.c_str());
+    request->send(response);
+  });
+
+  ClientCapture patchCapture;
+  {
+    MongooseHttpClient client;
+    TEST_ASSERT_TRUE(client.patch("http://127.0.0.1:18086/resource",
+                                  "text/plain",
+                                  "patch-body",
+                                  [&patchCapture](MongooseHttpClientResponse *response) {
+                                    patchCapture.responded = true;
+                                    patchCapture.code = response->respCode();
+                                    patchCapture.body.assign(response->body().c_str(), response->body().length());
+                                    patchCapture.replyHeader.assign(response->headers("X-Method").c_str(),
+                                                                    response->headers("X-Method").length());
+                                  },
+                                  [&patchCapture]() { patchCapture.closed = true; }));
+    TEST_ASSERT_TRUE_MESSAGE(pumpUntil([&patchCapture]() { return patchCapture.closed; }), "PATCH client request timed out");
+  }
+  TEST_ASSERT_EQUAL(200, patchCapture.code);
+  TEST_ASSERT_EQUAL_STRING("PATCH:patch-body", patchCapture.body.c_str());
+  TEST_ASSERT_EQUAL_STRING("PATCH", patchCapture.replyHeader.c_str());
+
+  ClientCapture deleteCapture;
+  {
+    MongooseHttpClient client;
+    TEST_ASSERT_TRUE(client.delete_("http://127.0.0.1:18086/resource",
+                                    [&deleteCapture](MongooseHttpClientResponse *response) {
+                                      deleteCapture.responded = true;
+                                      deleteCapture.code = response->respCode();
+                                      deleteCapture.body.assign(response->body().c_str(), response->body().length());
+                                      deleteCapture.replyHeader.assign(response->headers("X-Method").c_str(),
+                                                                       response->headers("X-Method").length());
+                                    },
+                                    [&deleteCapture]() { deleteCapture.closed = true; }));
+    TEST_ASSERT_TRUE_MESSAGE(pumpUntil([&deleteCapture]() { return deleteCapture.closed; }), "DELETE client request timed out");
+  }
+  TEST_ASSERT_EQUAL(200, deleteCapture.code);
+  TEST_ASSERT_EQUAL_STRING("DELETE:empty", deleteCapture.body.c_str());
+  TEST_ASSERT_EQUAL_STRING("DELETE", deleteCapture.replyHeader.c_str());
+}
+
+static void test_http_client_abort_returns_false_when_not_connected() {
+  // A freshly-constructed request has no underlying connection, so abort()
+  // and cancel() must return false without crashing.
+  MongooseHttpClient client;
+  MongooseHttpClientRequest *request = client.beginRequest("http://127.0.0.1:18087/noop");
+  TEST_ASSERT_FALSE(request->abort());
+  TEST_ASSERT_FALSE(request->cancel());
+}
+
+static void test_http_client_cancel_aborts_in_flight_request() {
+  ScopedMongoose mongoose;
+  MongooseHttpServer server;
+  TEST_ASSERT_TRUE(server.begin(18087));
+
+  // Server hangs forever (never responds) so we can exercise cancel().
+  server.on("/hang", HTTP_GET, [](MongooseHttpServerRequest *) {
+    // Intentionally do nothing – request is never answered.
+  });
+
+  MongooseHttpClient client;
+  bool closed = false;
+  MongooseHttpClientRequest *request = client.beginRequest("http://127.0.0.1:18087/hang");
+  request->onClose([&closed]() { closed = true; });
+  TEST_ASSERT_TRUE(request->send());
+
+  // Pump briefly to let the TCP connection establish.
+  pumpFor(100);
+
+  // cancel() must return true (connection exists) and trigger the close path.
+  TEST_ASSERT_TRUE(request->cancel());
+
+  TEST_ASSERT_TRUE_MESSAGE(
+      pumpUntil([&closed]() { return closed; }, 2000),
+      "close callback was not invoked after cancel()");
+}
+
 void runHttpClientTests() {
   RUN_TEST(test_http_client_get_exposes_status_body_headers_and_onbody);
   RUN_TEST(test_http_client_post_and_put_round_trip);
+  RUN_TEST(test_http_client_patch_and_delete);
+  RUN_TEST(test_http_client_abort_returns_false_when_not_connected);
+  RUN_TEST(test_http_client_cancel_aborts_in_flight_request);
 }

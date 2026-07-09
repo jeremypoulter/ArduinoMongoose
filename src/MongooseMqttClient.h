@@ -16,6 +16,7 @@ class MongooseMqttClient;
 
 typedef std::function<void()> MongooseMqttConnectionHandler;
 typedef std::function<void(const MongooseString topic, const MongooseString payload)> MongooseMqttMessageHandler;
+typedef std::function<void()> MongooseMqttDisconnectHandler;
 typedef enum {
   MQTT_MQTT = 0,
   MQTT_MQTTS,
@@ -36,6 +37,7 @@ class MongooseMqttClient : public MongooseSocket
 
     MongooseMqttConnectionHandler _onConnect;
     MongooseMqttMessageHandler _onMessage;
+    MongooseMqttDisconnectHandler _onDisconnect;
 
   protected:
     void onClose(mg_connection *nc);
@@ -61,10 +63,23 @@ class MongooseMqttClient : public MongooseSocket
       _password = password;
     }
 
+    void setCertificate(const char *cert, const char *key) {
+      MongooseSocket::setCertificate(cert, key);
+    }
+
+    void setRejectUnauthorized(bool reject) {
+      MongooseSocket::setRejectUnauthorized(reject);
+    }
+
     void setLastWillAndTestimment(const char *topic, const char *message, bool retain = false) {
       _will_topic = topic;
       _will_message = message;
       _will_retain = retain;
+    }
+
+    // Correct-spelling alias; setLastWillAndTestimment kept for backward compatibility
+    void setLastWillAndTestament(const char *topic, const char *message, bool retain = false) {
+      setLastWillAndTestimment(topic, message, retain);
     }
 
 #ifdef ARDUINO
@@ -84,6 +99,9 @@ class MongooseMqttClient : public MongooseSocket
       setCredentials(username.c_str(), password.c_str());
     }
     void setLastWillAndTestimment(String &topic, String &message, bool retain = false) {
+      setLastWillAndTestimment(topic.c_str(), message.c_str(), retain);
+    }
+    void setLastWillAndTestament(String &topic, String &message, bool retain = false) {
       setLastWillAndTestimment(topic.c_str(), message.c_str(), retain);
     }
 #endif
@@ -114,10 +132,14 @@ class MongooseMqttClient : public MongooseSocket
       return this;
     }
 
-    bool subscribe(const char *topic);
+    void onDisconnect(MongooseMqttDisconnectHandler fnHandler) {
+      _onDisconnect = fnHandler;
+    }
+
+    bool subscribe(const char *topic, int qos = 0);
 #ifdef ARDUINO
-    bool subscribe(String &topic) {
-      return subscribe(topic.c_str());
+    bool subscribe(String &topic, int qos = 0) {
+      return subscribe(topic.c_str(), qos);
     }
 #endif
 
