@@ -218,6 +218,21 @@ class MongooseMdns
     const char *hostname() const {
       return _hostname;
     }
+
+    /**
+     * @brief Get the number of currently registered services.
+     */
+    int numServices() const {
+      return _numServices;
+    }
+
+    /**
+     * @brief Get a registered service record by index.
+     * @param index  Zero-based index; must be < numServices()
+     */
+    const ServiceRecord &getService(int index) const {
+      return _services[index];
+    }
 };
 
 extern MongooseMdns Mdns;
