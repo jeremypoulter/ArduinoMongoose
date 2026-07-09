@@ -111,7 +111,10 @@ class MongooseWebSocketClient : public MongooseSocket
     bool connect(const char *url, const char *protocol = nullptr, const char *extraHeaders = nullptr);
 #ifdef ARDUINO
     bool connect(const String &url, const char *protocol = nullptr, const char *extraHeaders = nullptr) {
-     return connect(url.c_str(), protocol, extraHeaders);
+      return connect(url.c_str(), protocol, extraHeaders);
+    }
+    bool connect(const String &url, const String &protocol, const char *extraHeaders = nullptr) {
+      return connect(url.c_str(), protocol.c_str(), extraHeaders);
     }
 #endif
     

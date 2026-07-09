@@ -43,6 +43,8 @@ void MongooseSntpClient::handleEvent(mg_connection *nc, int ev, void *p)
         time.tv_usec = (time_ms % 1000) * 1000;
         _onTime(time);
       }
+      // Close the connection so _nc is cleared; future getTime() calls can reconnect
+      abort();
       break;
     }
   }

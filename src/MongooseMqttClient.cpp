@@ -21,7 +21,8 @@ MongooseMqttClient::MongooseMqttClient() :
   _will_retain(false),
   _connected(false),
   _onConnect(nullptr),
-  _onMessage(nullptr)
+  _onMessage(nullptr),
+  _onDisconnect(nullptr)
 {
 
 }
@@ -33,7 +34,11 @@ MongooseMqttClient::~MongooseMqttClient()
 
 void MongooseMqttClient::onClose(mg_connection *nc)
 {
+  bool wasConnected = _connected;
   _connected = false;
+  if(wasConnected && _onDisconnect) {
+    _onDisconnect();
+  }
   MongooseSocket::onClose(nc);
 }
 
@@ -116,14 +121,15 @@ bool MongooseMqttClient::connect(MongooseMqttProtocol protocol, const char *serv
   return false;
 }
 
-bool MongooseMqttClient::subscribe(const char *topic)
+bool MongooseMqttClient::subscribe(const char *topic, int qos)
 {
   if(connected())
   {
-    DBUGF("Subscribing to '%s'", topic);
+    DBUGF("Subscribing to '%s' qos=%d", topic, qos);
 
     struct mg_mqtt_opts sub_opts{};
     sub_opts.topic = mg_str_s(topic);
+    sub_opts.qos = qos;
 
     mg_mqtt_sub(getConnection(), &sub_opts);
     return true;

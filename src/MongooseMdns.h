@@ -145,10 +145,37 @@ class MongooseMdns
 #endif
 
     /**
+     * @brief Remove a previously registered DNS-SD service.
+     *
+     * @param srvcproto  Service type and protocol label, e.g. "_http._tcp"
+     * @return true if the service was found and removed, false if not found
+     */
+    bool removeService(const char *srvcproto);
+
+    /**
+     * @brief Convenience overload accepting separate protocol and transport.
+     *
+     * @param protocol   Service label, e.g. "_http"
+     * @param transport  Transport label, e.g. "_tcp" or "_udp"
+     * @return true if the service was found and removed
+     */
+    bool removeService(const char *protocol, const char *transport);
+
+#ifdef ARDUINO
+    bool removeService(const String &srvcproto) {
+      return removeService(srvcproto.c_str());
+    }
+
+    bool removeService(const String &protocol, const String &transport) {
+      return removeService(protocol.c_str(), transport.c_str());
+    }
+#endif
+
+    /**
      * @brief Send an mDNS query for the given hostname.
      *
      * The mDNS listener must already be started with begin().
-     * Responses are delivered via MG_EV_MDNS_RESP to Mongoose's resolver.
+     * Responses are delivered via MG_EV_MDNS_RESP to Mongoose resolver.
      *
      * @param name   Hostname to query (without .local)
      * @param rtype  DNS record type (default: MG_DNS_RTYPE_A for IPv4)
@@ -188,6 +215,21 @@ class MongooseMdns
      */
     const char *hostname() const {
       return _hostname;
+    }
+
+    /**
+     * @brief Get the number of currently registered services.
+     */
+    int numServices() const {
+      return _numServices;
+    }
+
+    /**
+     * @brief Get a registered service record by index.
+     * @param index  Zero-based index; must be < numServices()
+     */
+    const ServiceRecord &getService(int index) const {
+      return _services[index];
     }
 };
 
