@@ -5,6 +5,8 @@
 - Core library sources are under `src/`.
 - Runnable PlatformIO examples are under `examples/<example>/`.
 - CI workflows are in `.github/workflows/`.
+- Additional generic AI instructions can be found in `llms.txt`.
+- Human API documentation is in `docs/API_REFERENCE.md`.
 
 ## Working conventions for this repository
 - Make focused, minimal changes and avoid unrelated refactors.
