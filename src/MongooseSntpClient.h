@@ -1,9 +1,7 @@
 #ifndef MongooseSntpClient_h
 #define MongooseSntpClient_h
 
-#ifdef ARDUINO
-#include "Arduino.h"
-#endif
+#include "MongoosePlatform.h"
 
 #include <mongoose.h>
 

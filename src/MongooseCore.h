@@ -1,10 +1,7 @@
 #ifndef MongooseCore_h
 #define MongooseCore_h
 
-#ifdef ARDUINO
-#include <Arduino.h>
-#include <IPAddress.h>
-#endif // ARDUINO
+#include "MongoosePlatform.h"
 
 #include "mongoose.h"
 

@@ -127,8 +127,7 @@ bool MongooseMqttClient::subscribe(const char *topic, int qos)
   {
     DBUGF("Subscribing to '%s' qos=%d", topic, qos);
 
-    struct mg_mqtt_opts sub_opts;
-    memset(&sub_opts, 0, sizeof(sub_opts));
+    struct mg_mqtt_opts sub_opts{};
     sub_opts.topic = mg_str_s(topic);
     sub_opts.qos = qos;
 
@@ -142,8 +141,7 @@ bool MongooseMqttClient::publish(const char *topic, mg_str payload, bool retain,
 {
   if(connected())
   {
-    struct mg_mqtt_opts opts;
-    memset(&opts, 0, sizeof(opts));
+    struct mg_mqtt_opts opts{};
     opts.qos = qos;
     opts.retain = retain;
     opts.topic = mg_str_s(topic);
@@ -160,8 +158,7 @@ bool MongooseMqttClient::disconnect()
 {
   if(connected())
   {
-    struct mg_mqtt_opts opts;
-    memset(&opts, 0, sizeof(opts));
+    struct mg_mqtt_opts opts{};
 
     mg_mqtt_disconnect(getConnection(), &opts);
     MongooseSocket::disconnect();

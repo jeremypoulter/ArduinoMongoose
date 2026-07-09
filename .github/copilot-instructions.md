@@ -11,6 +11,7 @@
 - Keep existing coding style and preprocessor patterns used in nearby files.
 - Do not modify vendored third-party code in `src/mongoose.c` or `src/mongoose.h` unless the task explicitly requires it.
 - Prefer changing wrapper code in `src/Mongoose*.{h,cpp}` and validating behavior through relevant examples.
+- Examples under `examples/<example>/` must be self-contained and only reference the library (headers under `src/`) or PlatformIO libraries. Do not share files between examples using relative paths like `../../common/`; put shared helpers in `src/` instead.
 
 ## Build and validation commands
 - Install PlatformIO when needed:

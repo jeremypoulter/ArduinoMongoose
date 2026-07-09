@@ -1,10 +1,9 @@
 #ifndef MongooseHttpServerRequest_h
 #define MongooseHttpServerRequest_h
 
-#ifdef ARDUINO
-#include "Arduino.h"
-#endif
+#include "MongoosePlatform.h"
 
+#include "MongooseHttpMessage.h"
 #include "MongooseHttpServerConnection.h"
 #include "MongooseHttpServerResponse.h"
 #include "MongooseHttpServerResponseBasic.h"
@@ -20,7 +19,7 @@
 
 class MongooseHttpServerEndpoint;
 
-class MongooseHttpServerRequest : public MongooseHttpServerConnection
+class MongooseHttpServerRequest : public MongooseHttpServerConnection, public MongooseHttpMessage
 {
   private:
     void handlePoll(mg_connection *nc);
@@ -31,7 +30,6 @@ class MongooseHttpServerRequest : public MongooseHttpServerConnection
     void handleMessage(mg_connection *nc, mg_http_message *msg);
 
   protected:
-    mg_http_message *_msg;
     HttpRequestMethodComposite _method;
     MongooseHttpServerResponse *_response;
     MongooseHttpServerEndpoint *_endpoint;
@@ -52,59 +50,6 @@ class MongooseHttpServerRequest : public MongooseHttpServerConnection
 
     HttpRequestMethodComposite method() {
       return _method;
-    }
-
-    MongooseString message() {
-      return MongooseString(_msg->message);
-    }
-    MongooseString body() {
-      return MongooseString(_msg->body);
-    }
-
-    MongooseString methodStr() {
-      return MongooseString(_msg->method);
-    }
-    MongooseString uri() {
-      return MongooseString(_msg->uri);
-    }
-    MongooseString proto() {
-      return MongooseString(_msg->proto);
-    }
-
-//    int respCode() {
-//      return _msg->resp_code;
-//    }
-//    MongooseString respStatusMsg() {
-//      return MongooseString(_msg->resp_status_msg);
-//    }
-
-    MongooseString queryString() {
-      return MongooseString(_msg->query);
-    }
-
-    int headers() {
-      int i;
-      for (i = 0; i < MG_MAX_HTTP_HEADERS && _msg->headers[i].name.len > 0; i++) {
-      }
-      return i;
-    }
-    MongooseString headers(const char *name) {
-      MongooseString ret(mg_http_get_header(_msg, name));
-      return ret;
-    }
-    MongooseString headerNames(int i) {
-      return MongooseString(_msg->headers[i].name);
-    }
-    MongooseString headerValues(int i) {
-      return MongooseString(_msg->headers[i].value);
-    }
-
-    MongooseString host() {
-      return headers("Host");
-    }
-
-    MongooseString contentType() {
-      return headers("Content-Type");
     }
 
     size_t contentLength() {

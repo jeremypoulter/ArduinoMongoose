@@ -4,6 +4,7 @@ void runMongooseStringTests();
 void runHttpMethodTests();
 void runHttpServerTests();
 void runHttpClientTests();
+void runHttpMessageTests();
 void runWebSocketTests();
 void runMqttClientTests();
 void runSntpClientTests();
@@ -18,6 +19,7 @@ int main(int argc, char **argv) {
   runHttpMethodTests();
   runHttpServerTests();
   runHttpClientTests();
+  runHttpMessageTests();
   runWebSocketTests();
   runMqttClientTests();
   runSntpClientTests();
