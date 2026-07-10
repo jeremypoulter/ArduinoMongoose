@@ -32,23 +32,13 @@ bool MongooseHttpServer::begin(uint16_t port)
   char addr[32];
   snprintf(addr, sizeof(addr), "http://0.0.0.0:%u", port);
   DBUGF("Starting HTTP server on %s", addr);
-
-  if(mg_http_listen(Mongoose.getMgr(), addr, MongooseSocket::eventHandler, this))
-  {
-    return true;
-  }
-
-  return false;
+  return mg_http_listen(Mongoose.getMgr(), addr, MongooseSocket::eventHandler, this) != nullptr;
 }
 
 bool MongooseHttpServer::begin(uint16_t port, const char *cert, const char *private_key)
 {
   setCertificate(cert, private_key);
-  if(begin(port)) {
-    return true;
-  }
-
-  return false;
+  return begin(port);
 }
 
 MongooseHttpServerEndpointUpload *MongooseHttpServer::on(const char* uri)

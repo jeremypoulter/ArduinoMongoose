@@ -9,7 +9,6 @@
 #include <MicroDebug.h>
 #include <algorithm>
 #include <cstring>
-#include <vector>
 
 #include "MongooseHttpServerRequest.h"
 #include "MongooseHttpServerEndpoint.h"
@@ -246,17 +245,7 @@ String MongooseHttpServerRequest::getParam(const char *name) const
 #ifdef ARDUINO
 String MongooseHttpServerRequest::getParam(const String& name) const
 {
-  String ret = "";
-  char *tempString = new char[ARDUINO_MONGOOSE_PARAM_BUFFER_LENGTH];
-  if(tempString)
-  {
-    if(getParam(name, tempString, ARDUINO_MONGOOSE_PARAM_BUFFER_LENGTH) > 0) {
-      ret.concat(tempString);
-    }
-
-    delete tempString;
-  }
-  return ret;
+  return getParam(name.c_str());
 }
 #endif
 
@@ -306,18 +295,12 @@ bool MongooseHttpServerRequest::authenticate(const char * username, const char *
 
 void MongooseHttpServerRequest::requestAuthentication(const char* realm)
 {
-  // https://github.com/me-no-dev/ESPAsyncWebServer/blob/master/src/WebRequest.cpp#L852
-  // mg_http_send_digest_auth_request
-
-  const char *safeRealm = realm != nullptr ? realm : "";
-  size_t headerLength = strlen("WWW-Authenticate: Basic realm=\r\n") +
-      strlen(safeRealm) + 1;
-  std::vector<char> headers(headerLength);
-  mg_snprintf(headers.data(), headers.size(),
+  char headers[256];
+  mg_snprintf(headers, sizeof(headers),
       "WWW-Authenticate: Basic realm=%s\r\n",
-      safeRealm);
+      realm ? realm : "");
 
-  mg_http_reply(getConnection(), 401, headers.data(), "");
+  mg_http_reply(getConnection(), 401, headers, "");
   getConnection()->is_draining = 1;
 
   _responseSent = true;
