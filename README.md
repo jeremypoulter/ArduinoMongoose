@@ -11,11 +11,11 @@ randomness. On supported targets it uses the strongest platform source Mongoose
 has available, such as `/dev/urandom` on native builds and the ESP32 hardware
 RNG on ESP32 builds.
 
-If Mongoose cannot access a strong platform RNG on a target, it logs an error
-and falls back to `rand()`. That fallback is not appropriate for production TLS
-use, so security-sensitive deployments should run on a platform with a strong
-built-in RNG or provide an upstream-supported custom `mg_random()`
-implementation via `MG_ENABLE_CUSTOM_RANDOM=1`.
+If Mongoose cannot access a strong platform RNG on a target, `mg_random()` logs
+"Weak RNG: using rand()", fills the buffer using `rand()`, and returns `false`.
+Mongoose TLS treats that as a fatal RNG error and will close the connection, so
+production TLS deployments must use a platform with a strong built-in RNG or
+provide a custom `mg_random()` implementation via `MG_ENABLE_CUSTOM_RANDOM=1`.
 
 ArduinoMongoose does not add a wrapper-specific runtime RNG override API, which
 keeps future Mongoose updates straightforward without patching vendored
