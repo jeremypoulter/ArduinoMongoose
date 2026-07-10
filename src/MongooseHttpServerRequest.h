@@ -19,6 +19,9 @@
 
 class MongooseHttpServerEndpoint;
 
+ /**
+  * @brief Represents an incoming HTTP request
+  */ 
 class MongooseHttpServerRequest : public MongooseHttpServerConnection, public MongooseHttpMessage
 {
   private:
@@ -56,14 +59,26 @@ class MongooseHttpServerRequest : public MongooseHttpServerConnection, public Mo
       return _msg->body.len;
     }
 
+    /**
+     * @brief Redirect the client to a different URL
+     * @param url The target URL
+     */
     void redirect(const char *url);
 #ifdef ARDUINO
     void redirect(const String& url);
 #endif
 
+    /**
+     * @brief Begin a basic HTTP response
+     * @return MongooseHttpServerResponseBasic* Response object to populate
+     */
     MongooseHttpServerResponseBasic *beginResponse();
 
 #ifdef ARDUINO
+    /**
+     * @brief Begin a streamed HTTP response (chunked)
+     * @return MongooseHttpServerResponseStream* Stream response object
+     */
     MongooseHttpServerResponseStream *beginResponseStream();
 #endif
 
@@ -73,18 +88,40 @@ class MongooseHttpServerRequest : public MongooseHttpServerConnection, public Mo
       return NULL != _response;
     }
 
+    /**
+     * @brief Send a simple HTTP status code response
+     * @param code HTTP status code (e.g. 200, 404)
+     */
     void send(int code);
+    /**
+     * @brief Send a simple HTTP response with content
+     * @param code HTTP status code
+     * @param contentType MIME type of the content
+     * @param content Body payload
+     */
     void send(int code, const char *contentType, const char *content="");
 #ifdef ARDUINO
     void send(int code, const String& contentType, const String& content=String());
 #endif
 
+    /**
+     * @brief Check if a GET/POST parameter exists
+     * @param name The parameter name
+     * @return true if parameter exists
+     */
     bool hasParam(const char *name) const;
 #ifdef ARDUINO
     bool hasParam(const String& name) const;
     bool hasParam(const __FlashStringHelper * data) const;
 #endif
 
+    /**
+     * @brief Get the value of a GET/POST parameter
+     * @param name The parameter name
+     * @param dst Buffer to store the value
+     * @param dst_len Size of the destination buffer
+     * @return length of the extracted parameter
+     */
     int getParam(const char *name, char *dst, size_t dst_len) const;
 #ifdef ARDUINO
     int getParam(const String& name, char *dst, size_t dst_len) const;
@@ -97,12 +134,22 @@ class MongooseHttpServerRequest : public MongooseHttpServerConnection, public Mo
     String getParam(const __FlashStringHelper * data) const;
 #endif
 
+    /**
+     * @brief Perform Basic Authentication against provided credentials
+     * @param username Expected username
+     * @param password Expected password
+     * @return true if credentials match
+     */
     bool authenticate(const char * username, const char * password);
 #ifdef ARDUINO
     bool authenticate(const String& username, const String& password) {
       return authenticate(username.c_str(), password.c_str());
     }
 #endif
+    /**
+     * @brief Respond with a 401 Unauthorized requesting Basic Authentication
+     * @param realm The authentication realm to display
+     */
     void requestAuthentication(const char* realm);
 #ifdef ARDUINO
     void requestAuthentication(const String& realm) {

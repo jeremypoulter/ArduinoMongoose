@@ -1,0 +1,44 @@
+name: GitHub Pages
+
+on:
+  push:
+    branches:
+      - mongoose_7
+  pull_request:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      
+      - name: Install Doxygen
+        run: sudo apt-get update && sudo apt-get install -y doxygen
+        
+      - name: Generate Doxygen HTML and XML
+        run: doxygen Doxyfile
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          
+      - name: Generate AI friendly Markdown
+        run: |
+          npm install -g moxygen
+          moxygen -a -o docs_output/html/API.md docs_output/xml || echo "Moxygen failed, but continuing"
+
+      - name: Upload documentation artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: documentation
+          path: ./docs_output/html
+
+      - name: Deploy to GitHub Pages
+        if: github.ref == 'refs/heads/mongoose_7' && github.event_name == 'push'
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./docs_output/html

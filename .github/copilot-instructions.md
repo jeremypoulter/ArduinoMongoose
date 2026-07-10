@@ -5,6 +5,8 @@
 - Core library sources are under `src/`.
 - Runnable PlatformIO examples are under `examples/<example>/`.
 - CI workflows are in `.github/workflows/`.
+- Additional generic AI instructions can be found in `llms.txt`.
+- Human API documentation is in `docs/API_REFERENCE.md`.
 
 ## Working conventions for this repository
 - Make focused, minimal changes and avoid unrelated refactors.
@@ -36,3 +38,8 @@
   - the command that produced it,
   - and the workaround or resolution attempted.
 - If an error cannot be resolved in-session, clearly call it out in the final report.
+
+## Updating Documentation
+- Public classes and methods in `src/` headers should include Doxygen comments (using `@brief`, etc.).
+- When adding or modifying API functions, update the corresponding documentation.
+- The documentation is generated automatically via GitHub Actions (using Doxygen and moxygen). If you need to test documentation changes locally, you can run `doxygen Doxyfile` and `moxygen -a -o docs_output/html/API.md docs_output/xml` after installing the required tools.
