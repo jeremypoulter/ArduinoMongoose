@@ -19,4 +19,9 @@ ArduinoMongoose is an Arduino-style C++ wrapper around the Mongoose networking l
 - The library supports `Native`, `ESP8266`, and `ESP32` platforms. Always check for platform-specific macros when utilizing hardware features.
 - Avoid modifying the vendor Mongoose library (`mongoose.c` / `.h`). Limit changes to the `Mongoose*.cpp`/`.h` files.
 
+## Updating Documentation
+- The project uses Doxygen and moxygen for generating API references and GitHub Pages documentation.
+- When adding new classes or methods to the wrappers, include Doxygen comments (e.g., `/** @brief ... */`).
+- The CI pipeline automatically builds and deploys documentation to GitHub Pages on merges to the `mongoose_7` branch.
+
 For API information, refer to `docs/API_REFERENCE.md`.
