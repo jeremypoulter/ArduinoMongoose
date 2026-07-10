@@ -6,6 +6,7 @@
 #include <string>
 
 #include "test_support.h"
+#include "test_tls_certs.h"
 
 namespace {
 struct HttpResponseCapture {
@@ -164,7 +165,43 @@ static void test_http_server_authentication_and_challenge() {
   TEST_ASSERT_EQUAL_STRING("Authenticated", authorized.body.c_str());
 }
 
+static void test_https_server_tls_handshake_succeeds() {
+  ScopedMongoose mongoose;
+  MongooseHttpServer server;
+  TEST_ASSERT_TRUE(server.begin(18090, TEST_TLS_CERT, TEST_TLS_KEY));
+
+  server.on("/tls", HTTP_GET, [](MongooseHttpServerRequest *request) {
+    request->send(200, "text/plain", "TLS OK");
+  });
+
+  struct Capture {
+    bool responded = false;
+    bool closed = false;
+    int code = 0;
+    std::string body;
+  } capture;
+
+  MongooseHttpClient client;
+  MongooseHttpClientRequest *request = client.beginRequest("https://127.0.0.1:18090/tls");
+  request->setInsecure();
+  request->onResponse([&capture](MongooseHttpClientResponse *response) {
+    capture.responded = true;
+    capture.code = response->respCode();
+    capture.body.assign(response->body().c_str(), response->body().length());
+  })->onClose([&capture]() { capture.closed = true; });
+
+  TEST_ASSERT_TRUE(request->send());
+  TEST_ASSERT_TRUE_MESSAGE(
+      pumpUntil([&capture]() { return capture.closed; }, 5000),
+      "HTTPS request timed out - TLS handshake may not have completed");
+
+  TEST_ASSERT_TRUE(capture.responded);
+  TEST_ASSERT_EQUAL(200, capture.code);
+  TEST_ASSERT_EQUAL_STRING("TLS OK", capture.body.c_str());
+}
+
 void runHttpServerTests() {
   RUN_TEST(test_http_server_routes_and_not_found);
   RUN_TEST(test_http_server_authentication_and_challenge);
+  RUN_TEST(test_https_server_tls_handshake_succeeds);
 }

@@ -95,6 +95,11 @@ class MongooseHttpClientRequest : public MongooseSocket
       return this;
     }
 
+    MongooseHttpClientRequest *setInsecure() {
+      setRejectUnauthorized(false);
+      return this;
+    }
+
     // Gracefully stop the request and let the connection drain to close.
     bool cancel() {
       if(!getConnection()) {
