@@ -371,8 +371,13 @@ void MongooseHttpServerRequest::handlePoll(mg_connection *nc)
     return;
   }
 
-  // Reap a kept-alive connection that has been parked idle for too long.
-  if(_completed && _keepAlive &&
+  // Reap a kept-alive connection that has been parked idle for too long. A
+  // connection still flushing queued response bytes to a slow client is not
+  // idle, so the timeout only runs once the send buffer is empty. (Draining
+  // early would not truncate the response - Mongoose closes a draining
+  // connection only once the send buffer is empty - but transmit time should
+  // not count as idle time.)
+  if(_completed && _keepAlive && 0 == nc->send.len &&
      (mg_millis() - _lastActivity) >= _server->keepAliveTimeout()) {
     DBUGF("Connection %p: keep-alive idle timeout", nc);
     nc->is_draining = 1;
@@ -391,13 +396,13 @@ void MongooseHttpServerRequest::handleHeaders(mg_connection *nc, mg_http_message
 
   _server->handleHeaders(nc, msg);
 
-  // If matching did not install a new handler (404 handler aside, e.g. a 405 or
-  // 500) the connection still points at this request; detach before freeing so
-  // the pending close does not dispatch to freed memory.
-  if(nc->fn_data == this) {
-    nc->fn_data = nullptr;
+  // Retire only once a new request has taken over the connection. If matching
+  // did not install one (e.g. a 405, which drains the connection) this request
+  // stays attached so the eventual MG_EV_CLOSE still dispatches through
+  // handleClose() and the endpoint close callbacks fire as usual.
+  if(nc->fn_data != this) {
+    delete this;
   }
-  delete this;
 }
 
 void MongooseHttpServerRequest::handleMessage(mg_connection *nc, mg_http_message *msg)
