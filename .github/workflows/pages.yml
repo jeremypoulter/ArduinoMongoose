@@ -6,25 +6,32 @@ on:
       - mongoose_7
   pull_request:
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
-      - uses: actions/checkout@v7
-      
+      - uses: actions/checkout@v4
+
       - name: Install Doxygen
         run: sudo apt-get update && sudo apt-get install -y doxygen
-        
+
       - name: Generate Doxygen HTML and XML
         run: doxygen Doxyfile
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v4
         with:
           node-version: '24'
-          
+
       - name: Generate AI friendly Markdown
         run: |
           npm install -g moxygen
@@ -36,9 +43,28 @@ jobs:
           name: documentation
           path: ./docs_output/html
 
-      - name: Deploy to GitHub Pages
-        if: github.ref == 'refs/heads/mongoose_7' && github.event_name == 'push'
-        uses: peaceiris/actions-gh-pages@v4
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/mongoose_7' && github.event_name == 'push'
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download documentation artifact
+        uses: actions/download-artifact@v5
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./docs_output/html
+          name: documentation
+          path: ./docs_output/html
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: ./docs_output/html
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
