@@ -51,6 +51,12 @@ class MongooseMqttClient : public MongooseSocket
     MongooseMqttClient();
     ~MongooseMqttClient();
 
+    /**
+     * @brief Connect to an MQTT broker
+     * @param server The server address
+     * @param client_id The client ID
+     * @return true if connection started
+     */
     bool connect(const char *server, const char *client_id) {
       return connect(MQTT_MQTT, server, client_id, _onConnect);
     }
@@ -60,13 +66,29 @@ class MongooseMqttClient : public MongooseSocket
     bool connect(MongooseMqttProtocol protocol, const char *server, const char *client_id) {
       return connect(protocol, server, client_id, _onConnect);
     }
+    /**
+     * @brief Connect to an MQTT broker with protocol and callback
+     * @param protocol MQTT, MQTTS, etc.
+     * @param server The server address
+     * @param client_id The client ID
+     * @param onConnect Connection callback
+     * @return true if connection started
+     */
     bool connect(MongooseMqttProtocol protocol, const char *server, const char *client_id, MongooseMqttConnectionHandler onConnect);
 
+    /**
+     * @brief Set the MQTT Credentials
+     * @param username The MQTT username
+     * @param password The MQTT password
+     */
     void setCredentials(const char *username, const char *password) {
       _username = username;
       _password = password;
     }
 
+    /**
+     * @brief Set the TLS Client Certificate
+     */
     void setCertificate(const char *cert, const char *key) {
       MongooseSocket::setCertificate(cert, key);
     }
@@ -110,8 +132,15 @@ class MongooseMqttClient : public MongooseSocket
     }
 #endif
 
+    /**
+     * @brief Disconnect from the broker
+     */
     bool disconnect();
 
+    /**
+     * @brief Check if connected to broker
+     * @return true if connected
+     */
     bool connected() {
       return MongooseSocket::connected() &&  _connected;
     }
@@ -140,6 +169,12 @@ class MongooseMqttClient : public MongooseSocket
       _onDisconnect = fnHandler;
     }
 
+    /**
+     * @brief Subscribe to an MQTT topic
+     * @param topic Topic to subscribe to
+     * @param qos Quality of Service (0, 1, 2)
+     * @return true if subscribe sent
+     */
     bool subscribe(const char *topic, int qos = 0);
 #ifdef ARDUINO
     bool subscribe(String &topic, int qos = 0) {
@@ -147,12 +182,23 @@ class MongooseMqttClient : public MongooseSocket
     }
 #endif
 
+    /**
+     * @brief Publish a message to a topic
+     * @param topic Topic to publish to
+     * @param payload Message payload
+     * @param retain Retain flag
+     * @param qos Quality of Service
+     * @return true if publish sent
+     */
     bool publish(const char *topic, const char *payload, bool retain = false, int qos=0) {
       return publish(topic, mg_str_s(payload), retain, qos);
     }
     bool publish(const char *topic, MongooseString payload, bool retain = false, int qos=0) {
       return publish(topic, payload.toMgStr(), retain, qos);
     }
+    /**
+     * @brief Publish an mg_str payload to a topic
+     */
     bool publish(const char *topic, mg_str payload, bool retain = false, int qos=0);
 #ifdef ARDUINO
     bool publish(String &topic, const char *payload, bool retain = false, int qos=0) {

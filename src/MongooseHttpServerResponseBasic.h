@@ -12,6 +12,9 @@
 #include "MongooseSocket.h"
 #include "MongooseHttpServerResponseBasic.h"
 
+/**
+ * @brief A basic HTTP server response containing a static payload
+ */
 class MongooseHttpServerResponseBasic:
   public MongooseHttpServerResponse
 {
@@ -22,7 +25,16 @@ class MongooseHttpServerResponseBasic:
   public:
     MongooseHttpServerResponseBasic();
 
+    /**
+     * @brief Set a null-terminated string as the response body
+     * @param content Null-terminated string payload
+     */
     void setContent(const char *content);
+    /**
+     * @brief Set binary data as the response body
+     * @param content Pointer to the data
+     * @param len Length of the data
+     */
     void setContent(const uint8_t *content, size_t len);
     void setContent(MongooseString &content) {
       setContent((const uint8_t *)content.c_str(), content.length());

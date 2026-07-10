@@ -8,6 +8,11 @@
 #define MG_NULL_STR \
   { nullptr, 0 }
 
+/**
+ * @brief A string wrapper class interoperable with mg_str and Arduino String
+ * 
+ * Simplifies conversions and comparisons between C-strings, Arduino Strings, and Mongoose mg_str.
+ */
 class MongooseString
 {
   private:
@@ -102,10 +107,18 @@ class MongooseString
       len = _string.len;
     }
 
+    /**
+     * @brief Get the length of the string
+     * @return size_t Length of the string in bytes
+     */
     size_t length() const {
       return _string.len;
     }
 
+    /**
+     * @brief Get the underlying C-string pointer (may not be null-terminated)
+     * @return const char*
+     */
     const char *c_str() const
     {
       return _string.buf;

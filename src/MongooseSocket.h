@@ -14,6 +14,11 @@
 typedef std::function<void(const char *error)> MongooseSocketErrorHandler;
 typedef std::function<void()> MongooseSocketCloseHandler;
 
+/**
+ * @brief Base class for Mongoose network sockets
+ * 
+ * Provides core socket management, connection state, and event routing.
+ */
 class MongooseSocket
 {
   private:
@@ -82,11 +87,17 @@ class MongooseSocket
       _nc = nullptr;
     }
 
+    /**
+     * @brief Gracefully disconnect the socket (drain pending data)
+     */
     void disconnect() {
       if(_nc) {
         _nc->is_draining = 1;
       }
     }
+    /**
+     * @brief Forcibly abort the socket connection immediately
+     */
     void abort() {
       if(_nc) {
         _nc->is_closing = 1;
@@ -98,6 +109,10 @@ class MongooseSocket
     MongooseSocket(mg_connection *nc);
     ~MongooseSocket();
 
+    /**
+     * @brief Check if the socket is connected
+     * @return true if connected
+     */
     virtual bool connected() {
       return _nc;
     }
@@ -112,14 +127,26 @@ class MongooseSocket
       return this;
     }
 
+    /**
+     * @brief Get the underlying Mongoose connection object
+     * @return mg_connection*
+     */
     mg_connection *getConnection() {
       return _nc;
     }
 
+    /**
+     * @brief Get the remote network address
+     * @return mg_addr*
+     */
     mg_addr *getRemoteAddress() {
       return &_nc->rem;
     }
 
+    /**
+     * @brief Get the local network address
+     * @return mg_addr*
+     */
     mg_addr *getLocalAddress() {
       return &_nc->loc;
     }

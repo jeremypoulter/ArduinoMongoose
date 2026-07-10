@@ -22,6 +22,9 @@ class MongooseHttpClientResponse;
 
 typedef std::function<void(MongooseHttpClientResponse *request)> MongooseHttpResponseHandler;
 
+/**
+ * @brief Represents an outbound HTTP request
+ */
 class MongooseHttpClientRequest : public MongooseSocket
 {
   private:
@@ -121,6 +124,9 @@ class MongooseHttpClientRequest : public MongooseSocket
     }
 };
 
+/**
+ * @brief Represents an inbound HTTP response
+ */
 class MongooseHttpClientResponse : public MongooseHttpMessage {
   public:
     MongooseHttpClientResponse(mg_http_message *msg) :
@@ -134,18 +140,69 @@ class MongooseHttpClientResponse : public MongooseHttpMessage {
     size_t contentLength();
 };
 
+/**
+ * @brief HTTP Client wrapper
+ * 
+ * Provides methods to perform asynchronous HTTP requests.
+ */
 class MongooseHttpClient
 {
   public:
     MongooseHttpClient();
     ~MongooseHttpClient();
 
+    /**
+     * @brief Begin a custom HTTP request
+     * @param uri The URI to request
+     * @return MongooseHttpClientRequest* The request object to configure and send
+     */
     MongooseHttpClientRequest *beginRequest(const char *uri);
 
+    /**
+     * @brief Perform an HTTP GET request
+     * @param uri The URI to request
+     * @param onResponse Callback when response is received
+     * @param onClose Callback when connection is closed
+     * @return true if request was sent
+     */
     bool get(const char* uri, MongooseHttpResponseHandler onResponse = nullptr, MongooseSocketCloseHandler onClose = nullptr);
+    /**
+     * @brief Perform an HTTP POST request
+     * @param uri The URI to request
+     * @param contentType The Content-Type header value
+     * @param body The body payload
+     * @param onResponse Callback when response is received
+     * @param onClose Callback when connection is closed
+     * @return true if request was sent
+     */
     bool post(const char* uri, const char *contentType, const char *body, MongooseHttpResponseHandler onResponse = nullptr, MongooseSocketCloseHandler onClose = nullptr);
+    /**
+     * @brief Perform an HTTP PUT request
+     * @param uri The URI to request
+     * @param contentType The Content-Type header value
+     * @param body The body payload
+     * @param onResponse Callback when response is received
+     * @param onClose Callback when connection is closed
+     * @return true if request was sent
+     */
     bool put(const char* uri, const char *contentType, const char *body, MongooseHttpResponseHandler onResponse = nullptr, MongooseSocketCloseHandler onClose = nullptr);
+    /**
+     * @brief Perform an HTTP PATCH request
+     * @param uri The URI to request
+     * @param contentType The Content-Type header value
+     * @param body The body payload
+     * @param onResponse Callback when response is received
+     * @param onClose Callback when connection is closed
+     * @return true if request was sent
+     */
     bool patch(const char* uri, const char *contentType, const char *body, MongooseHttpResponseHandler onResponse = nullptr, MongooseSocketCloseHandler onClose = nullptr);
+    /**
+     * @brief Perform an HTTP DELETE request
+     * @param uri The URI to request
+     * @param onResponse Callback when response is received
+     * @param onClose Callback when connection is closed
+     * @return true if request was sent
+     */
     bool delete_(const char* uri, MongooseHttpResponseHandler onResponse = nullptr, MongooseSocketCloseHandler onClose = nullptr);
 
 #ifdef ARDUINO

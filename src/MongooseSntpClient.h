@@ -33,6 +33,11 @@ class MongooseSntpClient : public MongooseSocket
     MongooseSntpClient();
     ~MongooseSntpClient();
 
+  /**
+   * @brief Register callback for when time is received
+   * @param handler The callback function
+   * @return MongooseSntpClient* This client instance for chaining
+   */
   MongooseSntpClient *onTime(MongooseSntpTimeHandler handler) {
     _onTime = handler;
     return this;
@@ -48,9 +53,20 @@ class MongooseSntpClient : public MongooseSocket
     return this;
   }
 
+  /**
+   * @brief Request time from an SNTP server
+   * @param server The SNTP server address
+   * @return true if request started successfully
+   */
   bool getTime(const char *server) {
     return getTime(server, _onTime);
   }
+  /**
+   * @brief Request time from an SNTP server with inline callback
+   * @param server The SNTP server address
+   * @param onTime The callback function
+   * @return true if request started successfully
+   */
   bool getTime(const char *server, MongooseSntpTimeHandler onTime);
 
 #ifdef ARDUINO
