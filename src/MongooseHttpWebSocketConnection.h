@@ -19,7 +19,7 @@ class MongooseHttpWebSocketConnection : public MongooseHttpServerRequest
     void handleWebSocketControl(mg_connection *nc, mg_ws_message *msg);
 
   public:
-    MongooseHttpWebSocketConnection(mg_connection *nc, HttpRequestMethodComposite method, mg_http_message *msg, MongooseHttpServerEndpoint *endpoint);
+    MongooseHttpWebSocketConnection(MongooseHttpServer *server, mg_connection *nc, HttpRequestMethodComposite method, mg_http_message *msg, MongooseHttpServerEndpoint *endpoint);
     virtual ~MongooseHttpWebSocketConnection();
 
     virtual bool isWebSocket() { return true; }

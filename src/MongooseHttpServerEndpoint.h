@@ -39,12 +39,12 @@ class MongooseHttpServerEndpoint
     MongooseHttpRequestHandler _request;
     MongooseHttpRequestHandler _close;
 
-    RequestHandle willHandleRequest(mg_connection *nc, HttpRequestMethodComposite requestMethod, mg_http_message *msg);
+    RequestHandle willHandleRequest(MongooseHttpServer *server, mg_connection *nc, HttpRequestMethodComposite requestMethod, mg_http_message *msg);
     void handleRequest(MongooseHttpServerRequest *request);
     void handleClose(MongooseHttpServerRequest *request);
   protected:
-    virtual MongooseHttpServerRequest *requestFactory(mg_connection *nc, HttpRequestMethodComposite method, mg_http_message *msg) {
-      return new MongooseHttpServerRequest(nc, method, msg, this);
+    virtual MongooseHttpServerRequest *requestFactory(MongooseHttpServer *server, mg_connection *nc, HttpRequestMethodComposite method, mg_http_message *msg) {
+      return new MongooseHttpServerRequest(server, nc, method, msg, this);
     }
 
   public:

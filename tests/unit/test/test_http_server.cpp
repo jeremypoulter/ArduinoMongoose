@@ -529,6 +529,253 @@ static void test_raw_body_upload_large()
   TEST_ASSERT_GREATER_THAN(0, dataCallCount);
 }
 
+// ---------------------------------------------------------------------------
+// Keep-alive coverage.
+//
+// The in-process MongooseHttpClient always sends "Connection: close", so these
+// tests drive the server with a raw HTTP/1.1 client (mg_http_connect) that can
+// negotiate keep-alive and reuse the socket for a second request.
+// ---------------------------------------------------------------------------
+namespace {
+
+struct RawResponse {
+  int code = 0;
+  std::string connection;  // value of the response Connection header
+  std::string body;
+};
+
+// A minimal HTTP/1.1 client that sends a queued list of raw requests, one after
+// each response, all on the same connection.
+struct RawKeepAliveClient {
+  std::vector<std::string> requests;
+  size_t sent = 0;
+  std::vector<RawResponse> responses;
+  bool connected = false;
+  bool closed = false;
+  bool errored = false;
+
+  void sendNext(mg_connection *c) {
+    if (sent < requests.size()) {
+      mg_send(c, requests[sent].data(), requests[sent].size());
+      sent++;
+    }
+  }
+
+  static void handler(mg_connection *c, int ev, void *ev_data) {
+    RawKeepAliveClient *self = static_cast<RawKeepAliveClient *>(c->fn_data);
+    if (ev == MG_EV_CONNECT) {
+      self->connected = true;
+      self->sendNext(c);
+    } else if (ev == MG_EV_HTTP_MSG) {
+      mg_http_message *hm = static_cast<mg_http_message *>(ev_data);
+      RawResponse r;
+      r.code = mg_http_status(hm);
+      mg_str *cc = mg_http_get_header(hm, "Connection");
+      if (cc) {
+        r.connection.assign(cc->buf, cc->len);
+      }
+      r.body.assign(hm->body.buf, hm->body.len);
+      self->responses.push_back(r);
+      self->sendNext(c);  // reuse the connection for the next queued request
+    } else if (ev == MG_EV_ERROR) {
+      self->errored = true;
+    } else if (ev == MG_EV_CLOSE) {
+      self->closed = true;
+    }
+  }
+};
+
+static size_t managerConnectionCount() {
+  size_t count = 0;
+  for (mg_connection *c = Mongoose.getMgr()->conns; c != nullptr; c = c->next) {
+    count++;
+  }
+  return count;
+}
+
+static void nopHandler(mg_connection * /*c*/, int /*ev*/, void * /*ev_data*/) {}
+
+}  // namespace
+
+static void test_http_server_keepalive_reuses_connection() {
+  ScopedMongoose mongoose;
+  MongooseHttpServer server;
+  TEST_ASSERT_TRUE(server.begin(18101));
+
+  int hits = 0;
+  server.on("/ka", HTTP_GET, [&hits](MongooseHttpServerRequest *request) {
+    hits++;
+    TEST_ASSERT_TRUE_MESSAGE(request->keepAlive(), "HTTP/1.1 request should negotiate keep-alive");
+    request->send(200, "text/plain", "ka");
+  });
+
+  RawKeepAliveClient client;
+  client.requests.push_back("GET /ka HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
+  client.requests.push_back("GET /ka HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
+
+  mg_connection *c = mg_http_connect(Mongoose.getMgr(), "http://127.0.0.1:18101",
+                                     RawKeepAliveClient::handler, &client);
+  TEST_ASSERT_NOT_NULL(c);
+
+  TEST_ASSERT_TRUE_MESSAGE(
+      pumpUntil([&client]() { return client.responses.size() >= 2; }, 3000),
+      "expected two responses on a single kept-alive connection");
+
+  TEST_ASSERT_EQUAL(2, client.responses.size());
+  TEST_ASSERT_EQUAL(2, hits);
+  TEST_ASSERT_EQUAL(200, client.responses[0].code);
+  TEST_ASSERT_EQUAL_STRING("keep-alive", client.responses[0].connection.c_str());
+  TEST_ASSERT_EQUAL_STRING("ka", client.responses[0].body.c_str());
+  TEST_ASSERT_EQUAL_STRING("ka", client.responses[1].body.c_str());
+  TEST_ASSERT_FALSE_MESSAGE(client.closed,
+      "connection must stay open across keep-alive responses");
+}
+
+static void test_http_server_keepalive_explicit_close() {
+  ScopedMongoose mongoose;
+  MongooseHttpServer server;
+  TEST_ASSERT_TRUE(server.begin(18102));
+
+  server.on("/ka", HTTP_GET, [](MongooseHttpServerRequest *request) {
+    TEST_ASSERT_FALSE_MESSAGE(request->keepAlive(),
+        "explicit Connection: close must defeat keep-alive");
+    request->send(200, "text/plain", "bye");
+  });
+
+  RawKeepAliveClient client;
+  client.requests.push_back(
+      "GET /ka HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n");
+
+  TEST_ASSERT_NOT_NULL(mg_http_connect(Mongoose.getMgr(), "http://127.0.0.1:18102",
+                                       RawKeepAliveClient::handler, &client));
+
+  TEST_ASSERT_TRUE_MESSAGE(
+      pumpUntil([&client]() { return client.closed; }, 3000),
+      "connection should close after an explicit Connection: close request");
+
+  TEST_ASSERT_EQUAL(1, client.responses.size());
+  TEST_ASSERT_EQUAL_STRING("close", client.responses[0].connection.c_str());
+}
+
+static void test_http_server_keepalive_disabled() {
+  ScopedMongoose mongoose;
+  MongooseHttpServer server;
+  TEST_ASSERT_TRUE(server.begin(18103));
+  server.enableKeepAlive(false);
+
+  server.on("/ka", HTTP_GET, [](MongooseHttpServerRequest *request) {
+    TEST_ASSERT_FALSE_MESSAGE(request->keepAlive(),
+        "enableKeepAlive(false) must force close mode");
+    request->send(200, "text/plain", "x");
+  });
+
+  RawKeepAliveClient client;
+  client.requests.push_back("GET /ka HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
+
+  TEST_ASSERT_NOT_NULL(mg_http_connect(Mongoose.getMgr(), "http://127.0.0.1:18103",
+                                       RawKeepAliveClient::handler, &client));
+
+  TEST_ASSERT_TRUE_MESSAGE(
+      pumpUntil([&client]() { return client.closed; }, 3000),
+      "connection should close when keep-alive is disabled");
+
+  TEST_ASSERT_EQUAL(1, client.responses.size());
+  TEST_ASSERT_EQUAL_STRING("close", client.responses[0].connection.c_str());
+}
+
+static void test_http_server_force_close() {
+  ScopedMongoose mongoose;
+  MongooseHttpServer server;
+  TEST_ASSERT_TRUE(server.begin(18104));
+
+  server.on("/ka", HTTP_GET, [](MongooseHttpServerRequest *request) {
+    request->forceClose();
+    request->send(200, "text/plain", "x");
+  });
+
+  RawKeepAliveClient client;
+  client.requests.push_back("GET /ka HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
+
+  TEST_ASSERT_NOT_NULL(mg_http_connect(Mongoose.getMgr(), "http://127.0.0.1:18104",
+                                       RawKeepAliveClient::handler, &client));
+
+  TEST_ASSERT_TRUE_MESSAGE(
+      pumpUntil([&client]() { return client.closed; }, 3000),
+      "forceClose() should close the connection after the response");
+
+  TEST_ASSERT_EQUAL(1, client.responses.size());
+  TEST_ASSERT_EQUAL_STRING("close", client.responses[0].connection.c_str());
+}
+
+static void test_http_server_keepalive_idle_timeout() {
+  ScopedMongoose mongoose;
+  MongooseHttpServer server;
+  TEST_ASSERT_TRUE(server.begin(18105));
+  server.setKeepAliveTimeout(150);  // ms
+
+  server.on("/ka", HTTP_GET, [](MongooseHttpServerRequest *request) {
+    request->send(200, "text/plain", "ka");
+  });
+
+  RawKeepAliveClient client;
+  client.requests.push_back("GET /ka HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
+
+  TEST_ASSERT_NOT_NULL(mg_http_connect(Mongoose.getMgr(), "http://127.0.0.1:18105",
+                                       RawKeepAliveClient::handler, &client));
+
+  TEST_ASSERT_TRUE_MESSAGE(
+      pumpUntil([&client]() { return !client.responses.empty(); }, 3000),
+      "expected a keep-alive response");
+  TEST_ASSERT_EQUAL_STRING("keep-alive", client.responses[0].connection.c_str());
+  TEST_ASSERT_FALSE(client.closed);
+
+  // The connection is now parked idle and should be reaped after the timeout.
+  TEST_ASSERT_TRUE_MESSAGE(
+      pumpUntil([&client]() { return client.closed; }, 3000),
+      "idle kept-alive connection should be reaped after the timeout");
+  TEST_ASSERT_EQUAL(1, client.responses.size());
+}
+
+static void test_http_server_keepalive_pool_pressure_veto() {
+  ScopedMongoose mongoose;
+  MongooseHttpServer server;
+  TEST_ASSERT_TRUE(server.begin(18106));
+
+  server.on("/probe", HTTP_GET, [](MongooseHttpServerRequest *request) {
+    TEST_ASSERT_FALSE_MESSAGE(request->keepAlive(),
+        "keep-alive must be vetoed while the manager is over the connection limit");
+    request->send(200, "text/plain", "x");
+  });
+
+  // Hold open enough idle connections to push the manager over
+  // ARDUINO_MONGOOSE_KEEPALIVE_MAX_CONNECTIONS.
+  std::vector<mg_connection *> held;
+  for (int i = 0; i < 12; i++) {
+    mg_connection *c = mg_connect(Mongoose.getMgr(), "tcp://127.0.0.1:18106",
+                                  nopHandler, nullptr);
+    TEST_ASSERT_NOT_NULL(c);
+    held.push_back(c);
+  }
+
+  TEST_ASSERT_TRUE_MESSAGE(
+      pumpUntil([]() {
+        return managerConnectionCount() > ARDUINO_MONGOOSE_KEEPALIVE_MAX_CONNECTIONS + 1;
+      }, 3000),
+      "failed to establish enough connections to exceed the keep-alive limit");
+
+  RawKeepAliveClient client;
+  client.requests.push_back("GET /probe HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
+
+  TEST_ASSERT_NOT_NULL(mg_http_connect(Mongoose.getMgr(), "http://127.0.0.1:18106",
+                                       RawKeepAliveClient::handler, &client));
+
+  TEST_ASSERT_TRUE_MESSAGE(
+      pumpUntil([&client]() { return !client.responses.empty(); }, 3000),
+      "expected a response to the probe request");
+
+  TEST_ASSERT_EQUAL_STRING("close", client.responses[0].connection.c_str());
+}
+
 static void test_https_server_tls_handshake_succeeds() {
   ScopedMongoose mongoose;
   MongooseHttpServer server;
@@ -575,5 +822,11 @@ void runHttpServerTests() {
   RUN_TEST(test_multipart_upload_auth_rejection);
   RUN_TEST(test_raw_body_upload_basic);
   RUN_TEST(test_raw_body_upload_large);
+  RUN_TEST(test_http_server_keepalive_reuses_connection);
+  RUN_TEST(test_http_server_keepalive_explicit_close);
+  RUN_TEST(test_http_server_keepalive_disabled);
+  RUN_TEST(test_http_server_force_close);
+  RUN_TEST(test_http_server_keepalive_idle_timeout);
+  RUN_TEST(test_http_server_keepalive_pool_pressure_veto);
   RUN_TEST(test_https_server_tls_handshake_succeeds);
 }

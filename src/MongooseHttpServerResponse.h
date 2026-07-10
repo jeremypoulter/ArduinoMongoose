@@ -25,6 +25,9 @@ class MongooseHttpServerResponse
 
     char * _headerBuffer;
 
+  protected:
+    bool _keepAlive;
+
   public:
     MongooseHttpServerResponse();
     virtual ~MongooseHttpServerResponse();
@@ -47,6 +50,9 @@ class MongooseHttpServerResponse
      */
     void setContentLength(int64_t contentLength) {
       _contentLength = contentLength;
+    }
+    void setKeepAlive(bool keepAlive) {
+      _keepAlive = keepAlive;
     }
 
     /**

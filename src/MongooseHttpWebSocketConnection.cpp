@@ -9,9 +9,14 @@
 #include "MongooseHttpWebSocketConnection.h"
 #include "MongooseHttpServerEndpointWebSocket.h"
 
-MongooseHttpWebSocketConnection::MongooseHttpWebSocketConnection(mg_connection *nc, HttpRequestMethodComposite method, mg_http_message *msg, MongooseHttpServerEndpoint *endpoint) :
-  MongooseHttpServerRequest(nc, method, msg, endpoint)
+MongooseHttpWebSocketConnection::MongooseHttpWebSocketConnection(MongooseHttpServer *server, mg_connection *nc, HttpRequestMethodComposite method, mg_http_message *msg, MongooseHttpServerEndpoint *endpoint) :
+  MongooseHttpServerRequest(server, nc, method, msg, endpoint)
 {
+  // WebSocket connections manage their own full-duplex lifetime; the HTTP
+  // keep-alive machinery (completion latch, idle reaper, request re-dispatch)
+  // must leave them alone.
+  _keepAlive = false;
+
   // Upgrade to websocket. From now on, a connection is a full-duplex
   // Websocket connection, which will receive MG_EV_WS_MSG events.
   mg_ws_upgrade(nc, msg, NULL);

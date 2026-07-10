@@ -14,7 +14,8 @@ MongooseHttpServerResponse::MongooseHttpServerResponse() :
   _code(200),
   _contentType(nullptr),
   _contentLength(-1),
-  _headerBuffer(nullptr)
+  _headerBuffer(nullptr),
+  _keepAlive(false)
 {
 
 }
@@ -107,11 +108,12 @@ void MongooseHttpServerResponse::sendHeaders(struct mg_connection *nc)
     "HTTP/1.1 %d %s\r\n"
     "Content-Type: %s\r\n"
     "Content-Length: %llu\r\n"
-    "Connection: close\r\n"
+    "Connection: %s\r\n"
     "%s\r\n",
     _code, mg_http_status_code_str(_code),
     _contentType ? _contentType : "text/plain",
-    _contentLength, _headerBuffer ? _headerBuffer : "");
+    _contentLength, _keepAlive ? "keep-alive" : "close",
+    _headerBuffer ? _headerBuffer : "");
 
   if(_headerBuffer) {
     free(_headerBuffer);

@@ -27,11 +27,12 @@
 //     our onReceive() override directly.
 // ---------------------------------------------------------------------------
 MongooseHttpServerRequestUpload::MongooseHttpServerRequestUpload(
+    MongooseHttpServer *server,
     mg_connection *nc,
     HttpRequestMethodComposite method,
     mg_http_message *msg,
     MongooseHttpServerEndpoint *endpoint) :
-  MongooseHttpServerRequest(nc, method, msg, endpoint),
+  MongooseHttpServerRequest(server, nc, method, msg, endpoint),
   index(0),
   _streaming(false),
   _bodyExpected(0),
@@ -41,8 +42,16 @@ MongooseHttpServerRequestUpload::MongooseHttpServerRequestUpload(
       static_cast<MongooseHttpServerEndpointUpload *>(_endpoint);
 
   if(!uploadEndpoint->hasUploadHandler()) {
+    // No upload handler: this endpoint is being used as an ordinary request
+    // handler, so leave the keep-alive negotiation from the base class intact.
     return;
   }
+
+  // A real upload: the raw-body path below detaches Mongoose's HTTP handler
+  // (c->pfn = NULL) so the connection can no longer parse a following request,
+  // and multipart consumers finalise on the connection-close event. Uploads
+  // must therefore stay close-based.
+  _keepAlive = false;
 
   // Detect multipart by looking for a "boundary" parameter in Content-Type.
   // If present, let Mongoose buffer the full body and use mg_http_next_multipart().

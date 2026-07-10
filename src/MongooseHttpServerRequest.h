@@ -17,6 +17,7 @@
 #define MG_COPY_HTTP_MESSAGE 1
 #endif
 
+class MongooseHttpServer;
 class MongooseHttpServerEndpoint;
 
  /**
@@ -26,17 +27,41 @@ class MongooseHttpServerRequest : public MongooseHttpServerConnection, public Mo
 {
   private:
     void handlePoll(mg_connection *nc);
-    void handleSend(mg_connection *nc, int num_bytes) {
-      handlePoll(nc);
-    }
     void handleClose(mg_connection *nc);
     void handleMessage(mg_connection *nc, mg_http_message *msg);
+    // A completed keep-alive request whose connection is being reused: hand the
+    // fresh request headers back to the server for endpoint matching.
+    void handleHeaders(mg_connection *nc, mg_http_message *msg) override;
+
+    // Negotiate keep-alive for this request from the protocol version, the
+    // client's Connection header and the server's current willingness.
+    bool negotiateKeepAlive(mg_http_message *msg);
+    // Mark the response finished: release Mongoose's response latch and either
+    // close the connection (close mode) or leave it open for the next request
+    // and arm the idle reaper (keep-alive mode).
+    void completeRequest();
+
+    // Kept-alive connections are reused; the request object lives as the
+    // connection's handler and must be freed on close and polled while idle.
+    void onClose(mg_connection *nc) override {
+      handleClose(nc);
+    }
+    void onPoll(mg_connection *nc) override {
+      handlePoll(nc);
+    }
+    void onSend(mg_connection *nc, long num_bytes) override {
+      handlePoll(nc);
+    }
 
   protected:
     HttpRequestMethodComposite _method;
     MongooseHttpServerResponse *_response;
     MongooseHttpServerEndpoint *_endpoint;
     bool _responseSent;
+    MongooseHttpServer *_server;
+    bool _keepAlive;
+    bool _completed;
+    uint64_t _lastActivity;
 
     void sendBody();
 
@@ -45,11 +70,25 @@ class MongooseHttpServerRequest : public MongooseHttpServerConnection, public Mo
 #endif
 
   public:
-    MongooseHttpServerRequest(mg_connection *nc, HttpRequestMethodComposite method, mg_http_message *msg, MongooseHttpServerEndpoint *endpoint);
+    MongooseHttpServerRequest(MongooseHttpServer *server, mg_connection *nc, HttpRequestMethodComposite method, mg_http_message *msg, MongooseHttpServerEndpoint *endpoint);
     virtual ~MongooseHttpServerRequest();
 
     virtual bool isUpload() { return false; }
     virtual bool isWebSocket() { return false; }
+
+    // True when the connection will be kept open for further requests once this
+    // response completes.
+    bool keepAlive() const {
+      return _keepAlive;
+    }
+    // Close the connection after this response even if the client asked to keep
+    // it alive. Must be called before the response is sent.
+    void forceClose() {
+      _keepAlive = false;
+    }
+    bool completed() const {
+      return _completed;
+    }
 
     HttpRequestMethodComposite method() {
       return _method;

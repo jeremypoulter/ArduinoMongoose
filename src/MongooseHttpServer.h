@@ -14,6 +14,20 @@
 #include "MongooseHttpServerEndpointUpload.h"
 #include "MongooseHttpServerEndpointWebSocket.h"
 
+// HTTP keep-alive. Rather than closing after every response, a connection is
+// kept open and reused for the next request when the client supports it. An
+// idle kept-alive connection is closed after ARDUINO_MONGOOSE_KEEPALIVE_TIMEOUT
+// seconds. Keep-alive is not offered while the manager already holds more than
+// ARDUINO_MONGOOSE_KEEPALIVE_MAX_CONNECTIONS connections: embedded TCP/IP
+// stacks have small connection pools (LWIP defaults to 16 on ESP32) and parked
+// connections would otherwise starve them.
+#ifndef ARDUINO_MONGOOSE_KEEPALIVE_TIMEOUT
+#define ARDUINO_MONGOOSE_KEEPALIVE_TIMEOUT 30
+#endif
+#ifndef ARDUINO_MONGOOSE_KEEPALIVE_MAX_CONNECTIONS
+#define ARDUINO_MONGOOSE_KEEPALIVE_MAX_CONNECTIONS 8
+#endif
+
 
  /**
   * @brief HTTP and WebSocket Server
@@ -22,10 +36,14 @@
   */ 
 class MongooseHttpServer : public MongooseHttpServerConnection
 {
+  friend class MongooseHttpServerRequest;
 
   private:
     std::list<MongooseHttpServerEndpoint *> _endpoints;
     MongooseHttpServerEndpoint _notFound;
+
+    bool _keepAliveEnabled;
+    uint32_t _keepAliveTimeoutMs;
 
     HttpRequestMethodComposite method(mg_str method);
   protected:
@@ -41,6 +59,59 @@ class MongooseHttpServer : public MongooseHttpServerConnection
      * @brief Destroy the HTTP Server object and clean up endpoints
      */
     ~MongooseHttpServer();
+
+    /**
+     * @brief Enable or disable HTTP keep-alive at runtime
+     *
+     * Enabled by default. When disabled the server closes every connection
+     * after a single response.
+     *
+     * @param enable true to allow connection reuse, false to close after each response
+     */
+    void enableKeepAlive(bool enable) {
+      _keepAliveEnabled = enable;
+    }
+
+    /**
+     * @brief Check if HTTP keep-alive is enabled
+     *
+     * @return true if new requests may negotiate keep-alive
+     * @return false if every connection closes after a single response
+     */
+    bool keepAliveEnabled() const {
+      return _keepAliveEnabled;
+    }
+
+    /**
+     * @brief Set the idle timeout for parked keep-alive connections
+     *
+     * @param timeoutMs idle time, in milliseconds, before a kept-alive connection
+     *                  is reaped. Defaults to ARDUINO_MONGOOSE_KEEPALIVE_TIMEOUT seconds.
+     */
+    void setKeepAliveTimeout(uint32_t timeoutMs) {
+      _keepAliveTimeoutMs = timeoutMs;
+    }
+
+    /**
+     * @brief Get the idle timeout for parked keep-alive connections
+     *
+     * @return uint32_t idle timeout in milliseconds
+     */
+    uint32_t keepAliveTimeout() const {
+      return _keepAliveTimeoutMs;
+    }
+
+    /**
+     * @brief Check whether a new request may be kept alive
+     *
+     * Refused while keep-alive is disabled or while the manager is already
+     * holding ARDUINO_MONGOOSE_KEEPALIVE_MAX_CONNECTIONS or more connections,
+     * so connection reuse never starves the pool.
+     *
+     * @return true if the request may be kept alive
+     * @return false if the connection should close after the response
+     */
+    bool allowKeepAlive();
 
     /**
      * @brief Start the HTTP server on the specified port

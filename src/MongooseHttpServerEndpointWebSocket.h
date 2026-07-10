@@ -18,8 +18,8 @@ class MongooseHttpServerEndpointWebSocket : public MongooseHttpServerEndpoint
     MongooseHttpWebSocketFrameHandler _wsFrame;
 
   protected:
-    virtual MongooseHttpServerRequest *requestFactory(mg_connection *nc, HttpRequestMethodComposite method, mg_http_message *msg) {
-      return new MongooseHttpWebSocketConnection(nc, method, msg, this);
+    virtual MongooseHttpServerRequest *requestFactory(MongooseHttpServer *server, mg_connection *nc, HttpRequestMethodComposite method, mg_http_message *msg) {
+      return new MongooseHttpWebSocketConnection(server, nc, method, msg, this);
     }
 
     void handleConnect(MongooseHttpWebSocketConnection *connection) {
