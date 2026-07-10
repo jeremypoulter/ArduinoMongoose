@@ -30,6 +30,12 @@ jobs:
           npm install -g moxygen
           moxygen -a -o docs_output/html/API.md docs_output/xml || echo "Moxygen failed, but continuing"
 
+      - name: Upload documentation artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: documentation
+          path: ./docs_output/html
+
       - name: Deploy to GitHub Pages
         if: github.ref == 'refs/heads/mongoose_7' && github.event_name == 'push'
         uses: peaceiris/actions-gh-pages@v4
