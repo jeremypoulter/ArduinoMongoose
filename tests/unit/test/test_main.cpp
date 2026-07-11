@@ -10,10 +10,7 @@ void runMqttClientTests();
 void runSntpClientTests();
 void runMdnsTests();
 
-void setUp(void) {}
-void tearDown(void) {}
-
-int main(int argc, char **argv) {
+static int runAllTests() {
   UNITY_BEGIN();
   runMongooseStringTests();
   runHttpMethodTests();
@@ -26,3 +23,20 @@ int main(int argc, char **argv) {
   runMdnsTests();
   return UNITY_END();
 }
+
+void setUp(void) {}
+void tearDown(void) {}
+
+#if defined(ARDUINO)
+void setup() {
+  (void) runAllTests();
+}
+
+void loop() {}
+#else
+int main(int argc, char **argv) {
+  (void) argc;
+  (void) argv;
+  return runAllTests();
+}
+#endif
