@@ -213,8 +213,11 @@ class MongooseString
       if(nullptr == _string.buf) {
         return String("");
       }
-      String ret = String(_string.buf, _string.len);
-      
+      String ret;
+      ret.reserve(_string.len);
+      for (size_t i = 0; i < _string.len; i++) {
+        ret += _string.buf[i];
+      }
       return ret;
     }
 #endif // ARDUINO

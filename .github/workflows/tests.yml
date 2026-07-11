@@ -52,10 +52,10 @@ jobs:
           mkdir -p test-results
           pio test -e native --junit-output-path test-results/native-junit.xml
 
-      - name: Build native EpoxyDuino unit tests
+      - name: Run native EpoxyDuino unit tests
         run: |
           cd tests/unit
-          pio test -e native_test --without-uploading --without-testing
+          pio test -e native_test
 
       - name: Build ESP32 unit tests
         run: |

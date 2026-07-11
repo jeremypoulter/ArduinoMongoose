@@ -48,8 +48,29 @@ static void test_accessors_return_expected_values() {
   TEST_ASSERT_EQUAL_STRING_LEN("Payload", raw.buf, raw.len);
 }
 
+#ifdef ARDUINO
+static void test_arduino_string_interop() {
+  String arduinoValue("Hello");
+  MongooseString wrapped(arduinoValue);
+
+  TEST_ASSERT_TRUE(wrapped.equals(arduinoValue));
+  TEST_ASSERT_TRUE(wrapped == arduinoValue);
+  TEST_ASSERT_FALSE(wrapped != arduinoValue);
+  TEST_ASSERT_EQUAL(0, wrapped.compareTo(arduinoValue));
+
+  String converted = wrapped.toString();
+  TEST_ASSERT_EQUAL_STRING("Hello", converted.c_str());
+
+  String casted = wrapped.operator String();
+  TEST_ASSERT_EQUAL_STRING("Hello", casted.c_str());
+}
+#endif
+
 void runMongooseStringTests() {
   RUN_TEST(test_constructs_from_char_pointer_mg_str_and_nullptr);
   RUN_TEST(test_equals_compare_and_safe_bool_behaviour);
   RUN_TEST(test_accessors_return_expected_values);
+#ifdef ARDUINO
+  RUN_TEST(test_arduino_string_interop);
+#endif
 }
