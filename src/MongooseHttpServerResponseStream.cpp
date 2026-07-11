@@ -24,7 +24,7 @@ MongooseHttpServerResponseStream::~MongooseHttpServerResponseStream()
 
 size_t MongooseHttpServerResponseStream::write(const uint8_t *data, size_t len)
 {
-  size_t written = mg_iobuf_add(&_content, 0, data, len);
+  size_t written = mg_iobuf_add(&_content, _content.len, data, len);
   setContentLength(_content.len);
   return written;
 }
