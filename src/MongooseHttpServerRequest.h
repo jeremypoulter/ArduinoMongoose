@@ -29,16 +29,36 @@ class MongooseHttpServerRequest : public MongooseHttpServerConnection, public Mo
     void handlePoll(mg_connection *nc);
     void handleClose(mg_connection *nc);
     void handleMessage(mg_connection *nc, mg_http_message *msg);
-    // A completed keep-alive request whose connection is being reused: hand the
-    // fresh request headers back to the server for endpoint matching.
+    /**
+     * @brief Handle a new request arriving on a reused keep-alive connection
+     *
+     * A completed keep-alive request whose connection is being reused: hand the
+     * fresh request headers back to the server for endpoint matching.
+     *
+     * @param nc the Mongoose connection being reused
+     * @param msg the new request's parsed headers
+     */
     void handleHeaders(mg_connection *nc, mg_http_message *msg) override;
 
-    // Negotiate keep-alive for this request from the protocol version, the
-    // client's Connection header and the server's current willingness.
+    /**
+     * @brief Negotiate keep-alive for this request
+     *
+     * Decided from the protocol version (HTTP/1.1 defaults on), the client's
+     * Connection header and the server's current willingness.
+     *
+     * @param msg the request's parsed headers
+     * @return true if the connection may be kept alive after the response
+     * @return false if the connection should close after the response
+     */
     bool negotiateKeepAlive(mg_http_message *msg);
-    // Mark the response finished: release Mongoose's response latch and either
-    // close the connection (close mode) or leave it open for the next request
-    // and arm the idle reaper (keep-alive mode).
+
+    /**
+     * @brief Mark the response finished
+     *
+     * Releases Mongoose's response latch and either closes the connection
+     * (close mode) or leaves it open for the next request and arms the idle
+     * reaper (keep-alive mode).
+     */
     void completeRequest();
 
     // Kept-alive connections are reused; the request object lives as the
@@ -76,16 +96,33 @@ class MongooseHttpServerRequest : public MongooseHttpServerConnection, public Mo
     virtual bool isUpload() { return false; }
     virtual bool isWebSocket() { return false; }
 
-    // True when the connection will be kept open for further requests once this
-    // response completes.
+    /**
+     * @brief Check if the connection will be kept open after this response
+     *
+     * @return true if the connection will be reused for further requests
+     * @return false if the connection closes once the response completes
+     */
     bool keepAlive() const {
       return _keepAlive;
     }
-    // Close the connection after this response even if the client asked to keep
-    // it alive. Must be called before the response is sent.
+
+    /**
+     * @brief Close the connection after this response
+     *
+     * Overrides the negotiated keep-alive, e.g. for handlers that know the
+     * connection should not be reused. Must be called before the response is
+     * sent.
+     */
     void forceClose() {
       _keepAlive = false;
     }
+
+    /**
+     * @brief Check if the response has been fully sent
+     *
+     * @return true once completeRequest() has run for this request
+     * @return false while the response is still pending or in flight
+     */
     bool completed() const {
       return _completed;
     }

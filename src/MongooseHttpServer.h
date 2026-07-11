@@ -47,6 +47,15 @@ class MongooseHttpServer : public MongooseHttpServerConnection
 
     HttpRequestMethodComposite method(mg_str method);
   protected:
+    /**
+     * @brief Match request headers to an endpoint and create the request object
+     *
+     * Called for the first request on a connection and again by a completed
+     * keep-alive request when its connection receives the next request.
+     *
+     * @param nc the Mongoose connection the request arrived on
+     * @param msg the request's parsed headers
+     */
     void handleHeaders(mg_connection *nc, mg_http_message *msg);
 
   public:
