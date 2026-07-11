@@ -166,6 +166,38 @@ static void test_http_server_authentication_and_challenge() {
   TEST_ASSERT_EQUAL_STRING("Authenticated", authorized.body.c_str());
 }
 
+#ifdef ARDUINO
+static void test_http_server_stream_response_preserves_write_order() {
+  ScopedMongoose mongoose;
+  MongooseHttpServer server;
+  TEST_ASSERT_TRUE(server.begin(18087));
+
+  server.on("/stream", HTTP_GET, [](MongooseHttpServerRequest *request) {
+    MongooseHttpServerResponseStream *response = request->beginResponseStream();
+    response->setContentType("application/json");
+    response->print("{");
+    response->print("\"ok\":");
+    response->print("true}");
+    request->send(response);
+  });
+
+  HttpResponseCapture capture;
+  {
+    MongooseHttpClient client;
+    TEST_ASSERT_TRUE(client.get("http://127.0.0.1:18087/stream", [&capture](MongooseHttpClientResponse *response) {
+      capture.responded = true;
+      capture.code = response->respCode();
+      capture.body.assign(response->body().c_str(), response->body().length());
+    }, [&capture]() { capture.closed = true; }));
+    TEST_ASSERT_TRUE_MESSAGE(pumpUntil([&capture]() { return capture.closed; }), "stream request timed out");
+  }
+
+  TEST_ASSERT_TRUE(capture.responded);
+  TEST_ASSERT_EQUAL(200, capture.code);
+  TEST_ASSERT_EQUAL_STRING("{\"ok\":true}", capture.body.c_str());
+}
+#endif
+
 // ---------------------------------------------------------------------------
 // Helpers for building raw multipart/form-data bodies in tests.
 // ---------------------------------------------------------------------------
@@ -535,6 +567,9 @@ static void test_https_server_tls_handshake_succeeds() {
 void runHttpServerTests() {
   RUN_TEST(test_http_server_routes_and_not_found);
   RUN_TEST(test_http_server_authentication_and_challenge);
+#ifdef ARDUINO
+  RUN_TEST(test_http_server_stream_response_preserves_write_order);
+#endif
   RUN_TEST(test_multipart_upload_basic);
   RUN_TEST(test_multipart_upload_filename);
   RUN_TEST(test_multipart_upload_auth_rejection);
