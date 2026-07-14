@@ -42,9 +42,8 @@ size_t MongooseHttpServerResponseStream::sendBody(struct mg_connection *nc, size
 
   mg_iobuf_del(&_content, 0, send);
 
-  if(0 == _content.len) {
-    nc->is_draining = 1;
-  }
+  // Connection teardown (or keep-alive reuse) is decided once the body is fully
+  // sent, in MongooseHttpServerRequest::completeRequest().
 
   return send;
 }

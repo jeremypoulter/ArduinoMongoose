@@ -15,7 +15,9 @@
 MongooseHttpServer::MongooseHttpServer() :
   MongooseHttpServerConnection(),
   _endpoints(),
-  _notFound(HTTP_ANY, "#")
+  _notFound(HTTP_ANY, "#"),
+  _keepAliveEnabled(true),
+  _keepAliveTimeoutMs(ARDUINO_MONGOOSE_KEEPALIVE_TIMEOUT * 1000)
 {
   _notFound.onRequest([](MongooseHttpServerRequest *request) {
     request->send(404);
@@ -25,6 +27,23 @@ MongooseHttpServer::MongooseHttpServer() :
 MongooseHttpServer::~MongooseHttpServer()
 {
 
+}
+
+bool MongooseHttpServer::allowKeepAlive()
+{
+  if(!_keepAliveEnabled) {
+    return false;
+  }
+
+  // Count every connection on the manager, not just this server's: HTTP
+  // clients, MQTT, etc all share the same (small) network stack pool.
+  int connections = 0;
+  mg_mgr *mgr = Mongoose.getMgr();
+  for(mg_connection *c = mgr->conns; c != nullptr; c = c->next) {
+    connections++;
+  }
+
+  return connections <= ARDUINO_MONGOOSE_KEEPALIVE_MAX_CONNECTIONS;
 }
 
 bool MongooseHttpServer::begin(uint16_t port)
@@ -151,7 +170,7 @@ void MongooseHttpServer::handleHeaders(mg_connection *nc, mg_http_message *msg)
 
   for(auto &handler : _endpoints)
   {
-    RequestHandle endpointHandled = handler->willHandleRequest(nc, requestMethod, msg);
+    RequestHandle endpointHandled = handler->willHandleRequest(this, nc, requestMethod, msg);
     switch (endpointHandled)
     {
       case REQUEST_WILL_HANDLE:
@@ -176,7 +195,7 @@ void MongooseHttpServer::handleHeaders(mg_connection *nc, mg_http_message *msg)
     mg_http_reply(nc, 405, nullptr, "Method Not Allowed");
     nc->is_draining = 1;
   } else if(handled == REQUEST_NO_MATCH) {
-    _notFound.willHandleRequest(nc, requestMethod, msg);
+    _notFound.willHandleRequest(this, nc, requestMethod, msg);
   }
 }
 

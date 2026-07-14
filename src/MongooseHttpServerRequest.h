@@ -17,6 +17,7 @@
 #define MG_COPY_HTTP_MESSAGE 1
 #endif
 
+class MongooseHttpServer;
 class MongooseHttpServerEndpoint;
 
  /**
@@ -26,17 +27,61 @@ class MongooseHttpServerRequest : public MongooseHttpServerConnection, public Mo
 {
   private:
     void handlePoll(mg_connection *nc);
-    void handleSend(mg_connection *nc, int num_bytes) {
-      handlePoll(nc);
-    }
     void handleClose(mg_connection *nc);
     void handleMessage(mg_connection *nc, mg_http_message *msg);
+    /**
+     * @brief Handle a new request arriving on a reused keep-alive connection
+     *
+     * A completed keep-alive request whose connection is being reused: hand the
+     * fresh request headers back to the server for endpoint matching.
+     *
+     * @param nc the Mongoose connection being reused
+     * @param msg the new request's parsed headers
+     */
+    void handleHeaders(mg_connection *nc, mg_http_message *msg) override;
+
+    /**
+     * @brief Negotiate keep-alive for this request
+     *
+     * Decided from the protocol version (HTTP/1.1 defaults on), the client's
+     * Connection header and the server's current willingness.
+     *
+     * @param msg the request's parsed headers
+     * @return true if the connection may be kept alive after the response
+     * @return false if the connection should close after the response
+     */
+    bool negotiateKeepAlive(mg_http_message *msg);
+
+    /**
+     * @brief Mark the response finished
+     *
+     * Releases Mongoose's response latch and either closes the connection
+     * (close mode) or leaves it open for the next request and arms the idle
+     * reaper (keep-alive mode).
+     */
+    void completeRequest();
+
+    // Kept-alive connections are reused; the request object lives as the
+    // connection's handler and must be freed on close and polled while idle.
+    void onClose(mg_connection *nc) override {
+      handleClose(nc);
+    }
+    void onPoll(mg_connection *nc) override {
+      handlePoll(nc);
+    }
+    void onSend(mg_connection *nc, long num_bytes) override {
+      handlePoll(nc);
+    }
 
   protected:
     HttpRequestMethodComposite _method;
     MongooseHttpServerResponse *_response;
     MongooseHttpServerEndpoint *_endpoint;
     bool _responseSent;
+    MongooseHttpServer *_server;
+    bool _keepAlive;
+    bool _completed;
+    uint64_t _lastActivity;
 
     void sendBody();
 
@@ -45,11 +90,42 @@ class MongooseHttpServerRequest : public MongooseHttpServerConnection, public Mo
 #endif
 
   public:
-    MongooseHttpServerRequest(mg_connection *nc, HttpRequestMethodComposite method, mg_http_message *msg, MongooseHttpServerEndpoint *endpoint);
+    MongooseHttpServerRequest(MongooseHttpServer *server, mg_connection *nc, HttpRequestMethodComposite method, mg_http_message *msg, MongooseHttpServerEndpoint *endpoint);
     virtual ~MongooseHttpServerRequest();
 
     virtual bool isUpload() { return false; }
     virtual bool isWebSocket() { return false; }
+
+    /**
+     * @brief Check if the connection will be kept open after this response
+     *
+     * @return true if the connection will be reused for further requests
+     * @return false if the connection closes once the response completes
+     */
+    bool keepAlive() const {
+      return _keepAlive;
+    }
+
+    /**
+     * @brief Close the connection after this response
+     *
+     * Overrides the negotiated keep-alive, e.g. for handlers that know the
+     * connection should not be reused. Must be called before the response is
+     * sent.
+     */
+    void forceClose() {
+      _keepAlive = false;
+    }
+
+    /**
+     * @brief Check if the response has been fully sent
+     *
+     * @return true once completeRequest() has run for this request
+     * @return false while the response is still pending or in flight
+     */
+    bool completed() const {
+      return _completed;
+    }
 
     HttpRequestMethodComposite method() {
       return _method;

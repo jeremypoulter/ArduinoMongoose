@@ -11,7 +11,7 @@
 #include "MongooseHttpServerEndpoint.h"
 #include "MongooseHttp.h"
 
-RequestHandle MongooseHttpServerEndpoint::willHandleRequest(mg_connection *nc, HttpRequestMethodComposite requestMethod, mg_http_message *msg)
+RequestHandle MongooseHttpServerEndpoint::willHandleRequest(MongooseHttpServer *server, mg_connection *nc, HttpRequestMethodComposite requestMethod, mg_http_message *msg)
 {
   DBUGF("Checking if %x %.*s matches %x %.*s", requestMethod, (int)msg->uri.len, msg->uri.buf, _method, (int)_uri.length(), _uri.c_str());
 
@@ -21,7 +21,7 @@ RequestHandle MongooseHttpServerEndpoint::willHandleRequest(mg_connection *nc, H
     // Check if the method is allowed
     if(_method & requestMethod)
     {
-      MongooseHttpServerRequest *request = requestFactory(nc, requestMethod, msg);
+      MongooseHttpServerRequest *request = requestFactory(server, nc, requestMethod, msg);
       if(request)
       {
         nc->fn_data = request;

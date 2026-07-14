@@ -29,7 +29,8 @@ class MongooseHttpServerRequestUpload : public MongooseHttpServerRequest
     void onReceive(mg_connection *nc, long num_bytes) override;
 
   public:
-    MongooseHttpServerRequestUpload(mg_connection *nc,
+    MongooseHttpServerRequestUpload(MongooseHttpServer *server,
+                                    mg_connection *nc,
                                     HttpRequestMethodComposite method,
                                     mg_http_message *msg,
                                     MongooseHttpServerEndpoint *endpoint);

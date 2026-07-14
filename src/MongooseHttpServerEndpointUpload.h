@@ -22,8 +22,8 @@ class MongooseHttpServerEndpointUpload : public MongooseHttpServerEndpoint
     MongooseHttpUploadHandler _upload;
 
   protected:
-    virtual MongooseHttpServerRequest *requestFactory(mg_connection *nc, HttpRequestMethodComposite method, mg_http_message *msg) {
-      return new MongooseHttpServerRequestUpload(nc, method, msg, this);
+    virtual MongooseHttpServerRequest *requestFactory(MongooseHttpServer *server, mg_connection *nc, HttpRequestMethodComposite method, mg_http_message *msg) {
+      return new MongooseHttpServerRequestUpload(server, nc, method, msg, this);
     }
 
   public:

@@ -25,6 +25,9 @@ class MongooseHttpServerResponse
 
     char * _headerBuffer;
 
+  protected:
+    bool _keepAlive;
+
   public:
     MongooseHttpServerResponse();
     virtual ~MongooseHttpServerResponse();
@@ -47,6 +50,18 @@ class MongooseHttpServerResponse
      */
     void setContentLength(int64_t contentLength) {
       _contentLength = contentLength;
+    }
+    /**
+     * @brief Set the connection behaviour advertised by this response
+     *
+     * Controls whether the response carries a "Connection: keep-alive" or
+     * "Connection: close" header. Set from the request's negotiated state when
+     * the response is sent.
+     *
+     * @param keepAlive true to advertise keep-alive, false to advertise close
+     */
+    void setKeepAlive(bool keepAlive) {
+      _keepAlive = keepAlive;
     }
 
     /**
