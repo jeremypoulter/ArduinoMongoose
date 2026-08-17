@@ -1,9 +1,7 @@
 #ifndef MongooseHttp_h
 #define MongooseHttp_h
 
-#ifdef ARDUINO
-#include "Arduino.h"
-#endif
+#include "MongoosePlatform.h"
 
 #include <mongoose.h>
 
@@ -40,4 +38,4 @@ typedef WebRequestMethod HttpRequestMethod;
 
 typedef uint8_t HttpRequestMethodComposite;
 
-#endif /* _MongooseHttp_H_ */
+#endif /* MongooseHttp_h */
