@@ -16,9 +16,27 @@
 
 MongooseHttpServer::MongooseHttpServer() :
   nc(NULL),
-  defaultEndpoint(this, HTTP_ANY)
+  defaultEndpoint(this, HTTP_ANY),
+  _keepAliveEnabled(true)
 {
 
+}
+
+bool MongooseHttpServer::allowKeepAlive()
+{
+  if(!_keepAliveEnabled) {
+    return false;
+  }
+
+  // Count every connection on the manager, not just ours: HTTP clients, MQTT,
+  // etc all share the same (small) network stack pool.
+  int connections = 0;
+  mg_mgr *mgr = Mongoose.getMgr();
+  for(mg_connection *c = mg_next(mgr, NULL); c != NULL; c = mg_next(mgr, c)) {
+    connections++;
+  }
+
+  return connections <= ARDUINO_MONGOOSE_KEEPALIVE_MAX_CONNECTIONS;
 }
 
 MongooseHttpServer::~MongooseHttpServer()
@@ -112,6 +130,22 @@ void MongooseHttpServer::endpointEventHandler(struct mg_connection *nc, int ev, 
   self->server->eventHandler(nc, ev, p, self->method, self);
 }
 
+// Free a keep-alive request whose response has fully completed, leaving the
+// connection open for the next request. Close-mode requests stay attached
+// until MG_EV_CLOSE so their endpoint close callback keeps firing.
+static void checkRequestDone(struct mg_connection *nc)
+{
+  if(nc->user_connection_data)
+  {
+    MongooseHttpServerRequest *request = (MongooseHttpServerRequest *)nc->user_connection_data;
+    if(request->keepAlive() && request->completed() && !request->responseSent()) {
+      DBUGF("Connection %p: request complete, keeping alive", nc);
+      delete request;
+      nc->user_connection_data = NULL;
+    }
+  }
+}
+
 void MongooseHttpServer::eventHandler(struct mg_connection *nc, int ev, void *p, HttpRequestMethodComposite method, MongooseHttpServerEndpoint *endpoint)
 {
   if (ev != MG_EV_POLL) { DBUGF("%s %p: %d", __PRETTY_FUNCTION__, nc, ev); }
@@ -138,11 +172,14 @@ void MongooseHttpServer::eventHandler(struct mg_connection *nc, int ev, void *p,
       DBUGF("HTTP request from %s: %.*s %.*s", addr, (int) hm->method.len,
              hm->method.p, (int) hm->uri.len, hm->uri.p);
 
+      // A new request on this connection: cancel any pending keep-alive idle
+      // timer and free the previous request (normally already cleaned up).
+      mg_set_timer(nc, 0);
       if(nc->user_connection_data) {
         delete (MongooseHttpServerRequest *)nc->user_connection_data;
         nc->user_connection_data = NULL;
       }
-      MongooseHttpServerRequest *request = 
+      MongooseHttpServerRequest *request =
 #if MG_ENABLE_HTTP_STREAMING_MULTIPART
         MG_EV_HTTP_MULTIPART_REQUEST == ev ? new MongooseHttpServerRequestUpload(this, nc, hm) :
 #endif
@@ -154,7 +191,7 @@ void MongooseHttpServer::eventHandler(struct mg_connection *nc, int ev, void *p,
       {
         nc->user_connection_data = request;
 
-        if(endpoint->request) 
+        if(endpoint->request)
         {
           endpoint->request(request);
 #if MG_ENABLE_HTTP_WEBSOCKET
@@ -164,6 +201,11 @@ void MongooseHttpServer::eventHandler(struct mg_connection *nc, int ev, void *p,
         } else {
           mg_http_send_error(nc, 404, NULL);
         }
+
+        // Keep-alive: a request whose response completed synchronously is
+        // finished with — free it so the connection can host the next one.
+        // (Close-mode requests are freed on MG_EV_CLOSE as before.)
+        checkRequestDone(nc);
       } else {
         mg_http_send_error(nc, 500, NULL);
       }
@@ -201,8 +243,20 @@ void MongooseHttpServer::eventHandler(struct mg_connection *nc, int ev, void *p,
         if(request->responseSent()) {
           request->sendBody();
         }
+        checkRequestDone(nc);
       }
 
+      break;
+    }
+
+    case MG_EV_TIMER:
+    {
+      // Idle keep-alive connection outlived its welcome — close it. A live
+      // request in flight means the timer is stale; ignore it.
+      if(NULL == nc->user_connection_data) {
+        DBUGF("Connection %p: keep-alive idle timeout", nc);
+        nc->flags |= MG_F_SEND_AND_CLOSE;
+      }
       break;
     }
 
@@ -293,8 +347,24 @@ MongooseHttpServerRequest::MongooseHttpServerRequest(MongooseHttpServer *server,
   _msg(msg),
 #endif
   _response(NULL),
-  _responseSent(false)
+  _responseSent(false),
+  _keepAlive(false),
+  _completed(false)
 {
+  // HTTP/1.1 defaults to keep-alive, HTTP/1.0 to close; an explicit
+  // Connection header from the client wins either way. The server can still
+  // veto (pool pressure, runtime switch) via allowKeepAlive().
+  bool clientKeepAlive = (0 == mg_vcmp(&msg->proto, "HTTP/1.1"));
+  mg_str *connection = mg_get_http_header(msg, "Connection");
+  if(connection) {
+    if(0 == mg_vcasecmp(connection, "close")) {
+      clientKeepAlive = false;
+    } else if(0 == mg_vcasecmp(connection, "keep-alive")) {
+      clientKeepAlive = true;
+    }
+  }
+  _keepAlive = clientKeepAlive && server->allowKeepAlive();
+
   if(0 == mg_vcasecmp(&msg->method, "GET")) {
     _method = HTTP_GET;
   } else if(0 == mg_vcasecmp(&msg->method, "POST")) {
@@ -392,6 +462,18 @@ MongooseHttpServerResponseStream *MongooseHttpServerRequest::beginResponseStream
 
 #endif
 
+void MongooseHttpServerRequest::completeRequest()
+{
+  _completed = true;
+  if(_keepAlive) {
+    // Leave the connection open for the next request, but reap it if the
+    // client parks it idle for too long.
+    mg_set_timer(_nc, mg_time() + ARDUINO_MONGOOSE_KEEPALIVE_TIMEOUT);
+  } else {
+    _nc->flags |= MG_F_SEND_AND_CLOSE;
+  }
+}
+
 void MongooseHttpServerRequest::send(MongooseHttpServerResponse *response)
 {
   if(_response) {
@@ -399,6 +481,7 @@ void MongooseHttpServerRequest::send(MongooseHttpServerResponse *response)
     _response = NULL;
   }
 
+  response->setKeepAlive(_keepAlive);
   response->sendHeaders(_nc);
   _response = response;
   sendBody();
@@ -422,6 +505,7 @@ void MongooseHttpServerRequest::sendBody()
         DBUGLN("Response finished");
         delete _response;
         _response = NULL;
+        completeRequest();
       }
     }
   }
@@ -450,14 +534,15 @@ void MongooseHttpServerRequest::send(int code)
 void MongooseHttpServerRequest::send(int code, const char *contentType, const char *content)
 {
   char headers[64], *pheaders = headers;
-  mg_asprintf(&pheaders, sizeof(headers), 
-      "Connection: close\r\n"
+  mg_asprintf(&pheaders, sizeof(headers),
+      "Connection: %s\r\n"
       "Content-Type: %s",
+      _keepAlive ? "keep-alive" : "close",
       contentType);
 
   mg_send_head(_nc, code, strlen(content), pheaders);
   mg_send(_nc, content, strlen(content));
-  _nc->flags |= MG_F_SEND_AND_CLOSE;
+  completeRequest();
 
   if (pheaders != headers) free(pheaders);
 
@@ -605,13 +690,15 @@ void MongooseHttpServerRequest::requestAuthentication(const char* realm)
   // https://github.com/me-no-dev/ESPAsyncWebServer/blob/master/src/WebRequest.cpp#L852
   // mg_http_send_digest_auth_request
 
-  char headers[64], *pheaders = headers;
-  mg_asprintf(&pheaders, sizeof(headers), 
+  char headers[96], *pheaders = headers;
+  mg_asprintf(&pheaders, sizeof(headers),
+      "Connection: %s\r\n"
       "WWW-Authenticate: Basic realm=%s",
+      _keepAlive ? "keep-alive" : "close",
       realm);
 
   mg_send_head(_nc, 401, 0, pheaders);
-  _nc->flags |= MG_F_SEND_AND_CLOSE;
+  completeRequest();
 
   if (pheaders != headers) free(pheaders);
 
@@ -622,7 +709,8 @@ MongooseHttpServerResponse::MongooseHttpServerResponse() :
   _code(200),
   _contentType(NULL),
   _contentLength(-1),
-  _headerBuffer(NULL)
+  _headerBuffer(NULL),
+  _keepAlive(false)
 {
 
 }
@@ -642,9 +730,10 @@ MongooseHttpServerResponse::~MongooseHttpServerResponse()
 void MongooseHttpServerResponse::sendHeaders(struct mg_connection *nc)
 {
   char headers[64], *pheaders = headers;
-  mg_asprintf(&pheaders, sizeof(headers), 
-      "Connection: close\r\n"
+  mg_asprintf(&pheaders, sizeof(headers),
+      "Connection: %s\r\n"
       "Content-Type: %s%s",
+      _keepAlive ? "keep-alive" : "close",
       _contentType ? _contentType : "text/plain", _headerBuffer ? _headerBuffer : "");
 
   mg_send_head(nc, _code, _contentLength, pheaders);
@@ -735,7 +824,7 @@ size_t MongooseHttpServerResponseBasic::sendBody(struct mg_connection *nc, size_
   ptr += send;
   len -= send;
 
-  if(0 == len) {
+  if(0 == len && !_keepAlive) {
     nc->flags |= MG_F_SEND_AND_CLOSE;
   }
 
@@ -773,7 +862,7 @@ size_t MongooseHttpServerResponseStream::sendBody(struct mg_connection *nc, size
 
   mbuf_remove(&_content, send);
 
-  if(0 == _content.len) {
+  if(0 == _content.len && !_keepAlive) {
     nc->flags |= MG_F_SEND_AND_CLOSE;
   }
 
@@ -786,6 +875,9 @@ size_t MongooseHttpServerResponseStream::sendBody(struct mg_connection *nc, size
 MongooseHttpWebSocketConnection::MongooseHttpWebSocketConnection(MongooseHttpServer *server, mg_connection *nc, http_message *msg) :
   MongooseHttpServerRequest(server, nc, msg)
 {
+  // WebSocket connections manage their own lifetime; the HTTP keep-alive
+  // machinery (completion cleanup, idle reaper) must leave them alone.
+  _keepAlive = false;
   nc->flags |= MG_F_IS_MongooseHttpWebSocketConnection;
 }
 
