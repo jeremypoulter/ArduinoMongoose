@@ -43,6 +43,10 @@ class MongooseMqttClient : public MongooseSocket
     MongooseMqttMessageHandler _onMessage;
     MongooseMqttDisconnectHandler _onDisconnect;
 
+    // CONNACK return code of the last rejected connection attempt, 0 when the
+    // last failure was not a broker rejection. See connackCode().
+    int _connackCode;
+
   protected:
     void onClose(mg_connection *nc);
     void handleEvent(mg_connection *nc, int ev, void *p);
@@ -50,6 +54,25 @@ class MongooseMqttClient : public MongooseSocket
   public:
     MongooseMqttClient();
     ~MongooseMqttClient();
+
+    /**
+     * @brief CONNACK return code of the most recent connection attempt.
+     *
+     * The error callback reports a single string for every failure, which
+     * cannot be told apart programmatically: "bad credentials" and "DNS did not
+     * resolve" both arrive as text. Read this from the error handler to
+     * distinguish the two -- it is a non-zero MQTT CONNACK return code (1-5)
+     * when the broker rejected the connection, and 0 when the failure was at
+     * the transport level or no attempt has been made yet.
+     *
+     * Reset at the start of every connect(), so it always describes the attempt
+     * whose error you are handling.
+     *
+     * @return CONNACK return code, or 0 if the last failure was not a rejection
+     */
+    int connackCode() const {
+      return _connackCode;
+    }
 
     /**
      * @brief Connect to an MQTT broker

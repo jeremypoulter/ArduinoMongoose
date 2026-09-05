@@ -22,7 +22,8 @@ MongooseMqttClient::MongooseMqttClient() :
   _connected(false),
   _onConnect(nullptr),
   _onMessage(nullptr),
-  _onDisconnect(nullptr)
+  _onDisconnect(nullptr),
+  _connackCode(0)
 {
 
 }
@@ -30,6 +31,21 @@ MongooseMqttClient::MongooseMqttClient() :
 MongooseMqttClient::~MongooseMqttClient()
 {
 
+}
+
+// MQTT 3.1.1 section 3.2.2.3. MQTT 5 replaces these with its own reason codes,
+// which start at 0x80, so they fall through to the default.
+static const char *connackReturnCodeName(int code)
+{
+  switch(code)
+  {
+    case 1:  return "CONNACK_UNACCEPTABLE_VERSION";
+    case 2:  return "CONNACK_IDENTIFIER_REJECTED";
+    case 3:  return "CONNACK_SERVER_UNAVAILABLE";
+    case 4:  return "CONNACK_BAD_AUTH";
+    case 5:  return "CONNACK_NOT_AUTHORIZED";
+    default: return "MQTT connection error";
+  }
 }
 
 void MongooseMqttClient::onClose(mg_connection *nc)
@@ -56,8 +72,13 @@ void MongooseMqttClient::handleEvent(mg_connection *nc, int ev, void *p)
         }
       } else {
         DBUGF("Got mqtt connection error: %d", connack_status_code);
+        _connackCode = connack_status_code;
+        // Name the code as well as reporting it. The number alone is no use in
+        // a UI or a log, and the caller should not have to carry its own copy
+        // of the CONNACK table to say "check your password".
         char buf[100];
-        snprintf(buf, sizeof(buf), "MQTT connection error: %d", connack_status_code);
+        snprintf(buf, sizeof(buf), "%s (%d)",
+                 connackReturnCodeName(connack_status_code), connack_status_code);
         MongooseSocket::onError(nc, buf);
       }
       break;
@@ -103,6 +124,8 @@ bool MongooseMqttClient::connect(MongooseMqttProtocol protocol, const char *serv
     DBUGF("Trying to connect to %s", server);
     _onConnect = onConnect;
     _client_id = client_id;
+    // So connackCode() always describes the attempt in flight, never the last one.
+    _connackCode = 0;
 
     if(MQTT_MQTTS == protocol) {
       setSecure(server);
