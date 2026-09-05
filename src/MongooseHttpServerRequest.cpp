@@ -401,6 +401,10 @@ void MongooseHttpServerRequest::handleHeaders(mg_connection *nc, mg_http_message
   // stays attached so the eventual MG_EV_CLOSE still dispatches through
   // handleClose() and the endpoint close callbacks fire as usual.
   if(nc->fn_data != this) {
+    // The new request owns the connection now; ~MongooseSocket() would
+    // otherwise clear its freshly installed fn_data and mark the connection
+    // closing. Release our reference first, as in handleClose().
+    clearConnection();
     delete this;
   }
 }
