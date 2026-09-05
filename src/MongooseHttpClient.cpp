@@ -8,6 +8,9 @@
 
 #include <MicroDebug.h>
 
+#include <stdlib.h>  // malloc, free, strdup
+#include <string.h>  // memcpy
+
 #include "MongooseCore.h"
 #include "MongooseHttpClient.h"
 
@@ -101,7 +104,7 @@ MongooseHttpClientRequest::MongooseHttpClientRequest(const char *uri) :
   MongooseSocket(),
   _onResponse(nullptr),
   _onBody(nullptr),
-  _uri(uri),
+  _uri(uri ? strdup(uri) : nullptr),
   _method(HTTP_GET),
   _contentType(nullptr),
   _contentLength(-1),
@@ -113,10 +116,14 @@ MongooseHttpClientRequest::MongooseHttpClientRequest(const char *uri) :
 
 MongooseHttpClientRequest::~MongooseHttpClientRequest()
 {
-  if (_extraHeaders) {
-    free(_extraHeaders);
-    _extraHeaders = nullptr;
-  }
+  free(_uri);
+  _uri = nullptr;
+  free(_contentType);
+  _contentType = nullptr;
+  free(_body);
+  _body = nullptr;
+  free(_extraHeaders);
+  _extraHeaders = nullptr;
 }
 
 void MongooseHttpClientRequest::handleEvent(mg_connection *nc, int ev, void *p)
@@ -196,6 +203,11 @@ void MongooseHttpClientRequest::onClose(mg_connection *nc)
 
 bool MongooseHttpClientRequest::send()
 {
+  if(nullptr == _uri) {
+    DBUGF("No URI, was the request allocated with one?");
+    return false;
+  }
+
   if(mg_url_is_ssl(_uri)) {
     setSecure(mg_url_host(_uri));
   }
@@ -211,10 +223,34 @@ bool MongooseHttpClientRequest::send()
   return false;
 }
 
+MongooseHttpClientRequest *MongooseHttpClientRequest::setContentType(const char *contentType)
+{
+  free(_contentType);
+  _contentType = contentType ? strdup(contentType) : nullptr;
+  return this;
+}
+
 MongooseHttpClientRequest *MongooseHttpClientRequest::setContent(const uint8_t *content, size_t len)
 {
+  free(_body);
+  _body = nullptr;
+  setContentLength(0);
+
+  if(nullptr == content || 0 == len) {
+    return this;
+  }
+
+  // +1 and NUL-terminated: callers pass text bodies here via the const char *
+  // overload and it costs one byte to keep that safe to print while debugging.
+  _body = (uint8_t *)malloc(len + 1);
+  if(nullptr == _body) {
+    DBUGF("Failed to allocate %u bytes for the request body", (unsigned)len);
+    return this;
+  }
+
+  memcpy(_body, content, len);
+  _body[len] = '\0';
   setContentLength(len);
-  _body = content;
   return this;
 }
 
