@@ -45,7 +45,11 @@ static void test_mqtt_connack_code_tracks_broker_rejection() {
   TestableMqttClient client;
 
   std::string lastError;
-  client.onError([&lastError](const char *error) { lastError = error; });
+  bool portOneErrored = false;
+  client.onError([&lastError, &portOneErrored](const char *error) {
+    lastError = error;
+    portOneErrored = true;
+  });
 
   // No attempt made yet.
   TEST_ASSERT_EQUAL(0, client.connackCode());
@@ -65,6 +69,7 @@ static void test_mqtt_connack_code_tracks_broker_rejection() {
   // is listening on the target port. The point under test is simply that
   // connackCode() is reset synchronously inside connect(), before any network
   // event can occur, so it must not still describe the previous attempt.
+  portOneErrored = false;
   client.connect("127.0.0.1:1", "arduino-mongoose-connack-test");
   TEST_ASSERT_EQUAL(0, client.connackCode());
 
@@ -79,11 +84,20 @@ static void test_mqtt_connack_code_tracks_broker_rejection() {
   // no broker or timing involved -- this is what was actually crashing CI,
   // not the exit-code/signal-number issue that PR upstream#100 fixes (that
   // one is real too, just not what triggered this specific failure).
-  // connected() is true as soon as connect() hands back a live connection
-  // object and false again once mongoose has processed its close, so this is
-  // exactly "wait until torn down", not a fixed guess at how long that takes.
+  //
+  // Wait for the onError callback itself, not connected(): a refused
+  // connection never reaches MQTT CONNACK, so MongooseMqttClient::connected()
+  // (MongooseSocket::connected() && _connected) is false from the instant
+  // connect() returns and stays false throughout -- pumpUntil(!connected())
+  // would report success after its first, unconditional poll(), regardless of
+  // whether that poll actually processed the connection's teardown or not.
+  // It happened to pass under ASan only because a loopback refusal resolves
+  // fast enough to fit in that one poll's 10ms budget; that is incidental
+  // timing, not something this test should depend on. onError() is the
+  // signal that actually corresponds to the connection having been torn down
+  // (it is what the real bug's dangling reference was reached through).
   TEST_ASSERT_TRUE_MESSAGE(
-      pumpUntil([&client]() { return !client.connected(); }, 2000),
+      pumpUntil([&portOneErrored]() { return portOneErrored; }, 2000),
       "connect() to a closed port never resolved");
 
   // An accepted connection (ack == 0, the success case) leaves connackCode()
