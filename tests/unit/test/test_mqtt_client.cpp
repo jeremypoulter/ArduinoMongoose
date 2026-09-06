@@ -44,23 +44,32 @@ static void test_mqtt_connack_code_tracks_broker_rejection() {
   ScopedMongoose mongoose;
   TestableMqttClient client;
 
+  std::string lastError;
+  client.onError([&lastError](const char *error) { lastError = error; });
+
   // No attempt made yet.
   TEST_ASSERT_EQUAL(0, client.connackCode());
 
-  // A rejection (CONNACK_NOT_AUTHORIZED = 5) is recorded...
+  // A 3.1.1 rejection (CONNACK_NOT_AUTHORIZED = 5) is recorded, and the error
+  // string names it -- this is the formatting #97 introduced and #99 partly
+  // rewrote, so pin the exact text rather than just the code.
   int rejectCode = 5;
   client.handleEvent(nullptr, MG_EV_MQTT_OPEN, &rejectCode);
   TEST_ASSERT_EQUAL(5, client.connackCode());
+  TEST_ASSERT_EQUAL_STRING("CONNACK_NOT_AUTHORIZED (5)", lastError.c_str());
 
-  // ...and reset by the next connect() attempt, even one that never reaches
-  // the broker (no Mongoose manager is running in this test, so this fails
-  // synchronously) -- connackCode() must not still describe the last attempt.
+  // ...and reset by the next connect() attempt. A manager *is* running here
+  // (ScopedMongoose called Mongoose.begin() above) and connect() does not
+  // block on the peer responding -- mg_mqtt_connect() starts a non-blocking
+  // connection attempt and returns immediately regardless of whether anything
+  // is listening on the target port. The point under test is simply that
+  // connackCode() is reset synchronously inside connect(), before any network
+  // event can occur, so it must not still describe the previous attempt.
   client.connect("127.0.0.1:1", "arduino-mongoose-connack-test");
   TEST_ASSERT_EQUAL(0, client.connackCode());
 
-  // A non-zero ack that is not a broker rejection this library models (0
-  // itself means success and is handled separately; nothing to inject there).
-  // An accepted connection leaves connackCode() at 0.
+  // An accepted connection (ack == 0, the success case) leaves connackCode()
+  // at 0 -- confirms the two are not simply mirroring the raw ack byte.
   int acceptCode = 0;
   client.handleEvent(nullptr, MG_EV_MQTT_OPEN, &acceptCode);
   TEST_ASSERT_EQUAL(0, client.connackCode());
@@ -68,10 +77,12 @@ static void test_mqtt_connack_code_tracks_broker_rejection() {
   // An MQTT 5 reason code (>= 0x80) is recorded the same way as a 3.1.1
   // CONNACK return code -- mqtt_cb() in mongoose.c hands us the raw wire byte
   // regardless of protocol version, so this is a real case, not merely
-  // defensive.
+  // defensive. #99's fix was keeping the pre-#97 generic string for exactly
+  // this case (no 3.1.1 name for it), so assert that text too.
   int mqtt5RejectCode = 0x87;  // MQTT5 "Not authorized"
   client.handleEvent(nullptr, MG_EV_MQTT_OPEN, &mqtt5RejectCode);
   TEST_ASSERT_EQUAL(0x87, client.connackCode());
+  TEST_ASSERT_EQUAL_STRING("MQTT connection error: 135", lastError.c_str());
 }
 
 // ---------------------------------------------------------------------------
