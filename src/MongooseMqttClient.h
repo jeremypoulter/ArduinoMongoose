@@ -61,14 +61,15 @@ class MongooseMqttClient : public MongooseSocket
      * The error callback reports a single string for every failure, which
      * cannot be told apart programmatically: "bad credentials" and "DNS did not
      * resolve" both arrive as text. Read this from the error handler to
-     * distinguish the two -- it is a non-zero MQTT CONNACK return code (1-5)
-     * when the broker rejected the connection, and 0 when the failure was at
-     * the transport level or no attempt has been made yet.
+     * distinguish the two -- it is the broker's non-zero rejection code when
+     * the broker rejected the connection (an MQTT 3.1.1 CONNACK return code,
+     * 1-5, or an MQTT 5 reason code, which starts at 0x80), and 0 when the
+     * failure was at the transport level or no attempt has been made yet.
      *
      * Reset at the start of every connect(), so it always describes the attempt
      * whose error you are handling.
      *
-     * @return CONNACK return code, or 0 if the last failure was not a rejection
+     * @return the broker's rejection code, or 0 if the last failure was not a rejection
      */
     int connackCode() const {
       return _connackCode;

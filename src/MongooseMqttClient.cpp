@@ -33,8 +33,12 @@ MongooseMqttClient::~MongooseMqttClient()
 
 }
 
-// MQTT 3.1.1 section 3.2.2.3. MQTT 5 replaces these with its own reason codes,
-// which start at 0x80, so they fall through to the default.
+// MQTT 3.1.1 section 3.2.2.3 names for the return codes 1-5. MQTT 5 replaces
+// these with its own reason codes starting at 0x80 -- mqtt_cb() in mongoose.c
+// hands us the raw wire byte regardless of protocol version, so an MQTT 5
+// broker's rejection reaches here too. Returns NULL for anything we don't
+// have a 3.1.1 name for, so the caller can fall back to the generic format
+// that already existed before this table did.
 static const char *connackReturnCodeName(int code)
 {
   switch(code)
@@ -44,7 +48,7 @@ static const char *connackReturnCodeName(int code)
     case 3:  return "CONNACK_SERVER_UNAVAILABLE";
     case 4:  return "CONNACK_BAD_AUTH";
     case 5:  return "CONNACK_NOT_AUTHORIZED";
-    default: return "MQTT connection error";
+    default: return NULL;
   }
 }
 
@@ -73,12 +77,19 @@ void MongooseMqttClient::handleEvent(mg_connection *nc, int ev, void *p)
       } else {
         DBUGF("Got mqtt connection error: %d", connack_status_code);
         _connackCode = connack_status_code;
-        // Name the code as well as reporting it. The number alone is no use in
-        // a UI or a log, and the caller should not have to carry its own copy
-        // of the CONNACK table to say "check your password".
+        // Name the code where we have a name for it -- the number alone is no
+        // use in a UI or a log, and the caller should not have to carry its
+        // own copy of the CONNACK table to say "check your password". Keep the
+        // pre-existing generic text for anything outside 3.1.1's 1-5 (an MQTT 5
+        // reason code, or a value this library doesn't otherwise expect), so
+        // that format is unchanged for callers who already match against it.
         char buf[100];
-        snprintf(buf, sizeof(buf), "%s (%d)",
-                 connackReturnCodeName(connack_status_code), connack_status_code);
+        const char *name = connackReturnCodeName(connack_status_code);
+        if(name) {
+          snprintf(buf, sizeof(buf), "%s (%d)", name, connack_status_code);
+        } else {
+          snprintf(buf, sizeof(buf), "MQTT connection error: %d", connack_status_code);
+        }
         MongooseSocket::onError(nc, buf);
       }
       break;

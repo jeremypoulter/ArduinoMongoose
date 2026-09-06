@@ -11,6 +11,13 @@
 // API / build-only tests (no broker required)
 // ---------------------------------------------------------------------------
 
+// Exposes the protected handleEvent() so MG_EV_MQTT_OPEN can be injected
+// directly, without a real broker to reject the connection.
+class TestableMqttClient : public MongooseMqttClient {
+  public:
+    using MongooseMqttClient::handleEvent;
+};
+
 static void test_mqtt_api_setters_compile_and_do_not_crash() {
   MongooseMqttClient client;
 
@@ -31,6 +38,40 @@ static void test_mqtt_api_setters_compile_and_do_not_crash() {
 
   // Verify connected() returns false before any connect() call
   TEST_ASSERT_FALSE(client.connected());
+}
+
+static void test_mqtt_connack_code_tracks_broker_rejection() {
+  ScopedMongoose mongoose;
+  TestableMqttClient client;
+
+  // No attempt made yet.
+  TEST_ASSERT_EQUAL(0, client.connackCode());
+
+  // A rejection (CONNACK_NOT_AUTHORIZED = 5) is recorded...
+  int rejectCode = 5;
+  client.handleEvent(nullptr, MG_EV_MQTT_OPEN, &rejectCode);
+  TEST_ASSERT_EQUAL(5, client.connackCode());
+
+  // ...and reset by the next connect() attempt, even one that never reaches
+  // the broker (no Mongoose manager is running in this test, so this fails
+  // synchronously) -- connackCode() must not still describe the last attempt.
+  client.connect("127.0.0.1:1", "arduino-mongoose-connack-test");
+  TEST_ASSERT_EQUAL(0, client.connackCode());
+
+  // A non-zero ack that is not a broker rejection this library models (0
+  // itself means success and is handled separately; nothing to inject there).
+  // An accepted connection leaves connackCode() at 0.
+  int acceptCode = 0;
+  client.handleEvent(nullptr, MG_EV_MQTT_OPEN, &acceptCode);
+  TEST_ASSERT_EQUAL(0, client.connackCode());
+
+  // An MQTT 5 reason code (>= 0x80) is recorded the same way as a 3.1.1
+  // CONNACK return code -- mqtt_cb() in mongoose.c hands us the raw wire byte
+  // regardless of protocol version, so this is a real case, not merely
+  // defensive.
+  int mqtt5RejectCode = 0x87;  // MQTT5 "Not authorized"
+  client.handleEvent(nullptr, MG_EV_MQTT_OPEN, &mqtt5RejectCode);
+  TEST_ASSERT_EQUAL(0x87, client.connackCode());
 }
 
 // ---------------------------------------------------------------------------
@@ -120,6 +161,7 @@ static void test_mqtt_subscribe_with_qos_and_disconnect_handler() {
 
 void runMqttClientTests() {
   RUN_TEST(test_mqtt_api_setters_compile_and_do_not_crash);
+  RUN_TEST(test_mqtt_connack_code_tracks_broker_rejection);
   RUN_TEST(test_mqtt_round_trip_with_local_broker);
   RUN_TEST(test_mqtt_subscribe_with_qos_and_disconnect_handler);
 }
