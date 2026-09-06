@@ -34,7 +34,15 @@ bool MongooseHttpClient::get(const char *uri, MongooseHttpResponseHandler onResp
   if(nullptr != onClose) {
     request->onClose(onClose);
   }
-  return request->send();
+  // A successful send() self-deletes from onClose() once mongoose is done with
+  // it. A failed send() never connects, so onClose() never fires and nothing
+  // else references this request -- this convenience wrapper handed back only
+  // a bool, so it must clean up itself rather than leaking on every failure.
+  if(request->send()) {
+    return true;
+  }
+  delete request;
+  return false;
 }
 
 bool MongooseHttpClient::post(const char* uri, const char *contentType, const char *body, MongooseHttpResponseHandler onResponse, MongooseSocketCloseHandler onClose)
@@ -49,7 +57,11 @@ bool MongooseHttpClient::post(const char* uri, const char *contentType, const ch
   if(nullptr != onClose) {
     request->onClose(onClose);
   }
-  return request->send();
+  if(request->send()) {
+    return true;
+  }
+  delete request;
+  return false;
 }
 
 bool MongooseHttpClient::put(const char* uri, const char *contentType, const char *body, MongooseHttpResponseHandler onResponse, MongooseSocketCloseHandler onClose)
@@ -64,7 +76,11 @@ bool MongooseHttpClient::put(const char* uri, const char *contentType, const cha
   if(nullptr != onClose) {
     request->onClose(onClose);
   }
-  return request->send();
+  if(request->send()) {
+    return true;
+  }
+  delete request;
+  return false;
 }
 
 bool MongooseHttpClient::patch(const char* uri, const char *contentType, const char *body, MongooseHttpResponseHandler onResponse, MongooseSocketCloseHandler onClose)
@@ -79,7 +95,11 @@ bool MongooseHttpClient::patch(const char* uri, const char *contentType, const c
   if(nullptr != onClose) {
     request->onClose(onClose);
   }
-  return request->send();
+  if(request->send()) {
+    return true;
+  }
+  delete request;
+  return false;
 }
 
 bool MongooseHttpClient::delete_(const char* uri, MongooseHttpResponseHandler onResponse, MongooseSocketCloseHandler onClose)
@@ -92,7 +112,11 @@ bool MongooseHttpClient::delete_(const char* uri, MongooseHttpResponseHandler on
   if(nullptr != onClose) {
     request->onClose(onClose);
   }
-  return request->send();
+  if(request->send()) {
+    return true;
+  }
+  delete request;
+  return false;
 }
 
 MongooseHttpClientRequest *MongooseHttpClient::beginRequest(const char *uri)
