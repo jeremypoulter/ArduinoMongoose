@@ -12,21 +12,18 @@
 #include "MongooseMqttClient.h"
 
 MongooseMqttClient::MongooseMqttClient() :
-  _client_id(NULL),
-  _username(NULL),
-  _password(NULL),
-  _cert(NULL),
-  _key(NULL),
-  _will_topic(NULL),
-  _will_message(NULL),
+  MongooseSocket(),
+  _client_id(),
+  _username(),
+  _password(),
+  _will_topic(),
+  _will_message(),
   _will_retain(false),
-  _nc(NULL),
   _connected(false),
-  _reject_unauthorized(true),
-  _onConnect(NULL),
-  _onMessage(NULL),
-  _onError(NULL),
-  _onClose(NULL)
+  _onConnect(nullptr),
+  _onMessage(nullptr),
+  _onDisconnect(nullptr),
+  _connackCode(0)
 {
 
 }
@@ -36,90 +33,83 @@ MongooseMqttClient::~MongooseMqttClient()
 
 }
 
-void MongooseMqttClient::eventHandler(struct mg_connection *nc, int ev, void *p, void *u)
+// MQTT 3.1.1 section 3.2.2.3 names for the return codes 1-5. MQTT 5 replaces
+// these with its own reason codes starting at 0x80 -- mqtt_cb() in mongoose.c
+// hands us the raw wire byte regardless of protocol version, so an MQTT 5
+// broker's rejection reaches here too. Returns NULL for anything we don't
+// have a 3.1.1 name for, so the caller can fall back to the generic format
+// that already existed before this table did.
+static const char *connackReturnCodeName(int code)
 {
-  MongooseMqttClient *self = (MongooseMqttClient *)u;
-  self->eventHandler(nc, ev, p);
+  switch(code)
+  {
+    case 1:  return "CONNACK_UNACCEPTABLE_VERSION";
+    case 2:  return "CONNACK_IDENTIFIER_REJECTED";
+    case 3:  return "CONNACK_SERVER_UNAVAILABLE";
+    case 4:  return "CONNACK_BAD_AUTH";
+    case 5:  return "CONNACK_NOT_AUTHORIZED";
+    default: return NULL;
+  }
 }
 
-void MongooseMqttClient::eventHandler(struct mg_connection *nc, int ev, void *p)
+void MongooseMqttClient::onClose(mg_connection *nc)
 {
-  struct mg_mqtt_message *msg = (struct mg_mqtt_message *) p;
+  bool wasConnected = _connected;
+  _connected = false;
+  if(wasConnected && _onDisconnect) {
+    _onDisconnect();
+  }
+  MongooseSocket::onClose(nc);
+}
 
-  if (ev != MG_EV_POLL) { DBUGF("%s %p: %d", __PRETTY_FUNCTION__, nc, ev); }
-
+void MongooseMqttClient::handleEvent(mg_connection *nc, int ev, void *p)
+{
   switch (ev) 
   {
-    case MG_EV_CONNECT: {
-      int err = *((int *)p);
-      if(0 == err)
-      {
-        struct mg_send_mqtt_handshake_opts opts;
-        memset(&opts, 0, sizeof(opts));
-        opts.user_name = _username;
-        opts.password = _password;
-        opts.will_topic = _will_topic;
-        opts.will_message = _will_message;
-        
-        if(_will_retain) {
-          opts.flags |= MG_MQTT_WILL_RETAIN;
-        }
-        
-        DBUGVAR(_client_id);
-        DBUGVAR(opts.user_name);
-        DBUGVAR(opts.password);
-        DBUGVAR(opts.will_topic);
-        DBUGVAR(opts.will_message);
-        DBUGVAR(opts.flags);
-
-        mg_set_protocol_mqtt(nc);
-        mg_send_mqtt_handshake_opt(nc, _client_id, opts);
-      } else {
-        DBUGVAR(err);
-        _onError(err);
-      }
-      break;
-    }
-
-    case MG_EV_MQTT_CONNACK:
-      if (MG_EV_MQTT_CONNACK_ACCEPTED == msg->connack_ret_code) {
+    case MG_EV_MQTT_OPEN:
+    {
+      int connack_status_code = *(int *) p;
+      if (0 == connack_status_code) {
         _connected = true;
         if(_onConnect) {
           _onConnect();
         }
       } else {
-        DBUGF("Got mqtt connection error: %d", msg->connack_ret_code);
-        if(_onError) {
-          _onError(msg->connack_ret_code);
-          _nc = NULL;
+        DBUGF("Got mqtt connection error: %d", connack_status_code);
+        _connackCode = connack_status_code;
+        // Name the code where we have a name for it -- the number alone is no
+        // use in a UI or a log, and the caller should not have to carry its
+        // own copy of the CONNACK table to say "check your password". Keep the
+        // pre-existing generic text for anything outside 3.1.1's 1-5 (an MQTT 5
+        // reason code, or a value this library doesn't otherwise expect), so
+        // that format is unchanged for callers who already match against it.
+        char buf[100];
+        const char *name = connackReturnCodeName(connack_status_code);
+        if(name) {
+          snprintf(buf, sizeof(buf), "%s (%d)", name, connack_status_code);
+        } else {
+          snprintf(buf, sizeof(buf), "MQTT connection error: %d", connack_status_code);
         }
-      }
-      break;
-
-    case MG_EV_MQTT_PUBACK:
-      DBUGF("Message publishing acknowledged (msg_id: %d)", msg->message_id);
-      break;
-
-    case MG_EV_MQTT_SUBACK:
-      DBUGF("Subscription acknowledged");
-      break;
-
-    case MG_EV_MQTT_PUBLISH: {
-      DBUGF("Got incoming message %.*s: %.*s", (int) msg->topic.len,
-             msg->topic.p, (int) msg->payload.len, msg->payload.p);
-      if(_onMessage) {
-        _onMessage(MongooseString(msg->topic), MongooseString(msg->payload));
+        MongooseSocket::onError(nc, buf);
       }
       break;
     }
 
-    case MG_EV_CLOSE: {
-      DBUGF("Connection %p closed", nc);
-      if(_onClose) {
-        _onClose();
+    case MG_EV_MQTT_CMD:
+    {
+      struct mg_mqtt_message *msg = (struct mg_mqtt_message *) p;
+      DBUGF("MQTT command received: %d %d", nc->id, msg->cmd);
+      break;
+    }
+
+    case MG_EV_MQTT_MSG:
+    {
+      struct mg_mqtt_message *msg = (struct mg_mqtt_message *) p;
+      DBUGF("%lu RECEIVED %.*s <- %.*s", nc->id, (int) msg->data.len,
+             msg->data.buf, (int) msg->topic.len, msg->topic.buf);
+      if(_onMessage) {
+        _onMessage(MongooseString(msg->topic), MongooseString(msg->data));
       }
-      _nc = NULL;
-      _connected = false;
       break;
     }
   }
@@ -127,60 +117,55 @@ void MongooseMqttClient::eventHandler(struct mg_connection *nc, int ev, void *p)
 
 bool MongooseMqttClient::connect(MongooseMqttProtocol protocol, const char *server, const char *client_id, MongooseMqttConnectionHandler onConnect)
 {
-  if(NULL == _nc) 
+  if(nullptr == getConnection()) 
   {
-    struct mg_connect_opts opts;
-    bool secure = false;
+    mg_mqtt_opts opts {
+      .user = _username,
+      .pass = _password,
+      .client_id = mg_str_s(client_id),
+      .topic = _will_topic,
+      .message = _will_message,
+      .retain = _will_retain,
+      .clean = true
+    };
 
-#if MG_ENABLE_SSL
-    if(MQTT_MQTTS == protocol || MQTT_WSS == protocol) {
-      secure = true;
-    }
-#endif
-
-    Mongoose.getDefaultOpts(&opts, secure);
-#if MG_ENABLE_SSL
-    if(secure)
-    {
-      if(!_reject_unauthorized) {
-        opts.ssl_ca_cert = "*";
-      }
-      if(_cert && _key) {
-        opts.ssl_cert = _cert;
-        opts.ssl_key = _key;
-      }
-    }
-#endif
-
-    const char *err;
-    opts.error_string = &err;
+    char url[128];
+    snprintf(url, sizeof(url), "%s://%s", (MQTT_MQTTS == protocol) ? "mqtts" : "mqtt", server);
 
     DBUGF("Trying to connect to %s", server);
     _onConnect = onConnect;
     _client_id = client_id;
-    _nc = mg_connect_opt(Mongoose.getMgr(), server, eventHandler, this, opts);
-    if(_nc) {
+    // So connackCode() always describes the attempt in flight, never the last one.
+    _connackCode = 0;
+
+    if(MQTT_MQTTS == protocol) {
+      setSecure(server);
+    } else {
+      clearSecurity();
+    }
+
+    if(MongooseSocket::connect(
+      mg_mqtt_connect(Mongoose.getMgr(), url, &opts, eventHandler, this)))
+    {
       return true;
     }
 
-    DBUGF("Failed to connect to %s: %s", server, err);
+    DBUGF("Failed to connect to %s", server);
   }
   return false;
 }
 
-bool MongooseMqttClient::subscribe(const char *topic)
+bool MongooseMqttClient::subscribe(const char *topic, int qos)
 {
   if(connected())
   {
-    struct mg_mqtt_topic_expression s_topic_expr = {NULL, 0};
-    s_topic_expr.topic = topic;
-    DBUGF("Subscribing to '%s'", topic);
-    // MQTT packet ids must be unique among in-flight requests (MQTT-2.3.1-2).
-    // A constant id makes concurrent SUBSCRIBEs look like retransmissions of
-    // the same packet, so a conforming broker may register only the first.
-    static uint16_t message_id = 42;
-    if(0 == ++message_id) { message_id = 1; }
-    mg_mqtt_subscribe(_nc, &s_topic_expr, 1, message_id);
+    DBUGF("Subscribing to '%s' qos=%d", topic, qos);
+
+    struct mg_mqtt_opts sub_opts{};
+    sub_opts.topic = mg_str_s(topic);
+    sub_opts.qos = qos;
+
+    mg_mqtt_sub(getConnection(), &sub_opts);
     return true;
   }
   return false;
@@ -188,13 +173,15 @@ bool MongooseMqttClient::subscribe(const char *topic)
 
 bool MongooseMqttClient::publish(const char *topic, mg_str payload, bool retain, int qos)
 {
-  int flags = qos;
-  if(retain) {
-    flags |= MG_MQTT_RETAIN;
-  }
-  
-  if(connected()) {
-    mg_mqtt_publish(_nc, topic, 65, flags, payload.p, payload.len);
+  if(connected())
+  {
+    struct mg_mqtt_opts opts{};
+    opts.qos = qos;
+    opts.retain = retain;
+    opts.topic = mg_str_s(topic);
+    opts.message = payload;
+
+    mg_mqtt_pub(getConnection(), &opts);
     return true;
   }
 
@@ -203,9 +190,12 @@ bool MongooseMqttClient::publish(const char *topic, mg_str payload, bool retain,
 
 bool MongooseMqttClient::disconnect()
 {
-  if(connected()) {
-    mg_mqtt_disconnect(_nc);
-    _nc->flags |= MG_F_SEND_AND_CLOSE;
+  if(connected())
+  {
+    struct mg_mqtt_opts opts{};
+
+    mg_mqtt_disconnect(getConnection(), &opts);
+    MongooseSocket::disconnect();
     return true;
   }
 

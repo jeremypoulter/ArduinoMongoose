@@ -5,7 +5,10 @@
 //  * handle missing pages / 404s
 //
 
+#ifdef ARDUINO
 #include <Arduino.h>
+#endif
+
 #include <MongooseCore.h>
 #include <MongooseHttpServer.h>
 
@@ -15,14 +18,32 @@
 #elif defined(ESP8266)
 #include <ESP8266WiFi.h>
 #define START_ESP_WIFI
+#endif
+
+#ifndef LOGF
+#ifdef ARDUINO
+#define LOGF Serial.printf
 #else
-#error Platform not supported
+#define LOGF printf
+#endif
 #endif
 
 MongooseHttpServer server;
 
+#ifdef START_ESP_WIFI
 const char *ssid = "wifi";
 const char *password = "password";
+#endif
+
+#ifndef DEFAULT_PORT
+#ifdef SIMPLE_SERVER_SECURE
+#define DEFAULT_PORT 443
+#else
+#define DEFAULT_PORT 80
+#endif
+#endif
+
+int port = DEFAULT_PORT;
 
 const char *server_pem = 
 "-----BEGIN CERTIFICATE-----\r\n"
@@ -151,8 +172,7 @@ const char *index_page =
 "      Send messages, and see messages sent by other clients.\n"
 "    </p>\n"
 "\n"
-"    <div id=\"messages\">\n"
-"    </div>\n"
+"    <div id=\"messages\">\n""    </div>\n"
 "\n"
 "    <p>\n"
 "      <input type=\"text\" id=\"send_input\" />\n"
@@ -162,22 +182,17 @@ const char *index_page =
 "</body>\n"
 "</html>\n";
 
-#include <Arduino.h>
-
 void broadcast(MongooseHttpWebSocketConnection *from, MongooseString msg)
 {
   char buf[500];
-  char addr[32];
-  mg_sock_addr_to_str(from->getRemoteAddress(), addr, sizeof(addr),
-                      MG_SOCK_STRINGIFY_IP | MG_SOCK_STRINGIFY_PORT);
-
-  snprintf(buf, sizeof(buf), "%s %.*s", addr, (int) msg.length(), msg.c_str());
-  printf("%s\n", buf);
+  mg_snprintf(buf, sizeof(buf), "%M %.*s", mg_print_ip_port, from->getRemoteAddress(), (int)msg.length(), msg.c_str());
+  LOGF("%s\n", buf);
   server.sendAll(from, buf);
 }
 
 void setup()
 {
+#ifdef ARDUINO
   Serial.begin(115200);
 
 #ifdef START_ESP_WIFI
@@ -185,51 +200,88 @@ void setup()
   WiFi.begin(ssid, password);
   if (WiFi.waitForConnectResult() != WL_CONNECTED)
   {
-    Serial.printf("WiFi Failed!\n");
+    LOGF("WiFi Failed!\n");
     return;
   }
 
-  Serial.print("IP Address: ");
-  Serial.println(WiFi.localIP());
-  Serial.print("Hostname: ");
+  LOGF("IP Address: %s\n", WiFi.localIP().toString().c_str());
 #ifdef ESP32
-  Serial.println(WiFi.getHostname());
+  LOGF("Hostname: %s\n", WiFi.getHostname());
 #elif defined(ESP8266)
-  Serial.println(WiFi.hostname());
+  LOGF("Hostname: %s\n", WiFi.hostname().c_str());
+#endif
 #endif
 #endif
 
   Mongoose.begin();
 
 #ifdef SIMPLE_SERVER_SECURE
-  if(false == server.begin(443, server_pem, server_key)) {
-    Serial.print("Failed to start server");
+  if(false == server.begin(port, server_pem, server_key)) {
+    LOGF("Failed to start server\n");
     return;
   }
 #else
-  server.begin(80);
+  server.begin(port);
 #endif
+  LOGF("Server started on port %d\n", port);
 
-  server.on("/$", HTTP_GET, [](MongooseHttpServerRequest *request) {
+  server.on("/", HTTP_GET, [](MongooseHttpServerRequest *request) {
     request->send(200, "text/html", index_page);
   });
 
   // Test the stream response class
-  server.on("/ws$")->
+  server.on("/ws", [](MongooseHttpWebSocketConnection *connection, int flags, uint8_t *data, size_t len) {
+      broadcast(connection, MongooseString((const char *)data, len));
+    })->
     onConnect([](MongooseHttpWebSocketConnection *connection) {
       broadcast(connection, MongooseString("++ joined"));
     })->
     onClose([](MongooseHttpServerRequest *c) {
       MongooseHttpWebSocketConnection *connection = static_cast<MongooseHttpWebSocketConnection *>(c);
       broadcast(connection, MongooseString("++ left"));
-    })->
-    onFrame([](MongooseHttpWebSocketConnection *connection, int flags, uint8_t *data, size_t len) {
-      broadcast(connection, MongooseString((const char *)data, len));
     });
 }
 
 void loop()
 {
   Mongoose.poll(1000);
-  Serial.printf("Free memory %u\n", ESP.getFreeHeap());
+  //LOGF("Free memory %u\n", ESP.getFreeHeap());
 }
+
+#ifndef ARDUINO
+void usage(const char *name)
+{
+  fprintf(stderr, "Usage: %s [--port <port>]\n", name);
+}
+
+int main(int argc, char *argv[])
+{
+  int i;
+
+  for (i = 1; i < argc; i++) 
+  {
+    if (strcmp(argv[i], "--help") == 0)
+    {
+      usage(argv[0]);
+      exit(EXIT_SUCCESS);
+    } 
+    else if (strcmp(argv[i], "--port") == 0)
+    {
+      if (i + 1 < argc) {
+        port = atoi(argv[i + 1]);
+        i++;
+      } else {
+        usage(argv[0]);
+        exit(EXIT_FAILURE);
+      }
+    } else {
+      break;
+    }
+  }
+
+  setup();
+  while(true) {
+    loop();
+  }
+}
+#endif
