@@ -8,8 +8,30 @@
 
 #include <MicroDebug.h>
 
+#include <stdlib.h>  // malloc, free
+#include <string.h>  // memcpy, strlen
+
 #include "MongooseCore.h"
 #include "MongooseHttpClient.h"
+
+// mongoose.h #defines strdup(s) to mg_strdup(), which allocates through
+// mg_calloc() -- a custom allocator on builds that provide one (FreeRTOS and
+// friends). Pairing that with plain free(), as this file does for every other
+// buffer it owns, is an allocator mismatch that only shows up on those builds.
+// Duplicate with plain malloc()/memcpy() instead so the pairing is always the
+// same free() already used below.
+static char *dupString(const char *s)
+{
+  if(nullptr == s) {
+    return nullptr;
+  }
+  size_t len = strlen(s) + 1;
+  char *copy = (char *)malloc(len);
+  if(copy) {
+    memcpy(copy, s, len);
+  }
+  return copy;
+}
 
 MongooseHttpClient::MongooseHttpClient()
 {
@@ -31,7 +53,15 @@ bool MongooseHttpClient::get(const char *uri, MongooseHttpResponseHandler onResp
   if(nullptr != onClose) {
     request->onClose(onClose);
   }
-  return request->send();
+  // A successful send() self-deletes from onClose() once mongoose is done with
+  // it. A failed send() never connects, so onClose() never fires and nothing
+  // else references this request -- this convenience wrapper handed back only
+  // a bool, so it must clean up itself rather than leaking on every failure.
+  if(request->send()) {
+    return true;
+  }
+  delete request;
+  return false;
 }
 
 bool MongooseHttpClient::post(const char* uri, const char *contentType, const char *body, MongooseHttpResponseHandler onResponse, MongooseSocketCloseHandler onClose)
@@ -46,7 +76,11 @@ bool MongooseHttpClient::post(const char* uri, const char *contentType, const ch
   if(nullptr != onClose) {
     request->onClose(onClose);
   }
-  return request->send();
+  if(request->send()) {
+    return true;
+  }
+  delete request;
+  return false;
 }
 
 bool MongooseHttpClient::put(const char* uri, const char *contentType, const char *body, MongooseHttpResponseHandler onResponse, MongooseSocketCloseHandler onClose)
@@ -61,7 +95,11 @@ bool MongooseHttpClient::put(const char* uri, const char *contentType, const cha
   if(nullptr != onClose) {
     request->onClose(onClose);
   }
-  return request->send();
+  if(request->send()) {
+    return true;
+  }
+  delete request;
+  return false;
 }
 
 bool MongooseHttpClient::patch(const char* uri, const char *contentType, const char *body, MongooseHttpResponseHandler onResponse, MongooseSocketCloseHandler onClose)
@@ -76,7 +114,11 @@ bool MongooseHttpClient::patch(const char* uri, const char *contentType, const c
   if(nullptr != onClose) {
     request->onClose(onClose);
   }
-  return request->send();
+  if(request->send()) {
+    return true;
+  }
+  delete request;
+  return false;
 }
 
 bool MongooseHttpClient::delete_(const char* uri, MongooseHttpResponseHandler onResponse, MongooseSocketCloseHandler onClose)
@@ -89,7 +131,11 @@ bool MongooseHttpClient::delete_(const char* uri, MongooseHttpResponseHandler on
   if(nullptr != onClose) {
     request->onClose(onClose);
   }
-  return request->send();
+  if(request->send()) {
+    return true;
+  }
+  delete request;
+  return false;
 }
 
 MongooseHttpClientRequest *MongooseHttpClient::beginRequest(const char *uri)
@@ -101,7 +147,7 @@ MongooseHttpClientRequest::MongooseHttpClientRequest(const char *uri) :
   MongooseSocket(),
   _onResponse(nullptr),
   _onBody(nullptr),
-  _uri(uri),
+  _uri(uri ? dupString(uri) : nullptr),
   _method(HTTP_GET),
   _contentType(nullptr),
   _contentLength(-1),
@@ -113,10 +159,14 @@ MongooseHttpClientRequest::MongooseHttpClientRequest(const char *uri) :
 
 MongooseHttpClientRequest::~MongooseHttpClientRequest()
 {
-  if (_extraHeaders) {
-    free(_extraHeaders);
-    _extraHeaders = nullptr;
-  }
+  free(_uri);
+  _uri = nullptr;
+  free(_contentType);
+  _contentType = nullptr;
+  free(_body);
+  _body = nullptr;
+  free(_extraHeaders);
+  _extraHeaders = nullptr;
 }
 
 void MongooseHttpClientRequest::handleEvent(mg_connection *nc, int ev, void *p)
@@ -196,6 +246,11 @@ void MongooseHttpClientRequest::onClose(mg_connection *nc)
 
 bool MongooseHttpClientRequest::send()
 {
+  if(nullptr == _uri) {
+    DBUGF("No URI, was the request allocated with one?");
+    return false;
+  }
+
   if(mg_url_is_ssl(_uri)) {
     setSecure(mg_url_host(_uri));
   }
@@ -211,10 +266,43 @@ bool MongooseHttpClientRequest::send()
   return false;
 }
 
+MongooseHttpClientRequest *MongooseHttpClientRequest::setContentType(const char *contentType)
+{
+  free(_contentType);
+  _contentType = contentType ? dupString(contentType) : nullptr;
+  return this;
+}
+
 MongooseHttpClientRequest *MongooseHttpClientRequest::setContent(const uint8_t *content, size_t len)
 {
+  if(nullptr == content || 0 == len) {
+    free(_body);
+    _body = nullptr;
+    setContentLength(0);
+    return this;
+  }
+
+  // Allocate before touching any existing state. Freeing the old body and
+  // resetting the length first (as this used to) meant a failed allocation
+  // silently downgraded the request to an empty body instead of the intended
+  // payload -- a caller replacing an already-set body with a bigger one would
+  // lose the good copy it had, with only a debug log to say why. Leave the
+  // previous body/length untouched on failure instead.
+  //
+  // +1 and NUL-terminated: callers pass text bodies here via the const char *
+  // overload and it costs one byte to keep that safe to print while debugging.
+  uint8_t *newBody = (uint8_t *)malloc(len + 1);
+  if(nullptr == newBody) {
+    DBUGF("Failed to allocate %u bytes for the request body", (unsigned)len);
+    return this;
+  }
+
+  memcpy(newBody, content, len);
+  newBody[len] = '\0';
+
+  free(_body);
+  _body = newBody;
   setContentLength(len);
-  _body = content;
   return this;
 }
 

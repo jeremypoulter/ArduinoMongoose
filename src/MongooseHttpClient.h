@@ -31,11 +31,15 @@ class MongooseHttpClientRequest : public MongooseSocket
     MongooseHttpResponseHandler _onResponse;
     MongooseHttpResponseHandler _onBody;
 
-    const char *_uri;
+    // Owned copies. send() only starts the connection; the URI, content type
+    // and body are not read until onConnect() fires on a later poll, by which
+    // time a caller's local String or stack buffer is long gone. Holding the
+    // caller's pointers made every such call site a use-after-free.
+    char *_uri;
     HttpRequestMethodComposite _method;
-    const char *_contentType;
+    char *_contentType;
     int64_t _contentLength;
-    const uint8_t *_body;
+    uint8_t *_body;
     char *_extraHeaders;
     uint64_t _timeout_ms;
 
@@ -56,10 +60,7 @@ class MongooseHttpClientRequest : public MongooseSocket
       _method = method;
       return this;
     }
-    MongooseHttpClientRequest *setContentType(const char *contentType) {
-      _contentType = contentType;
-      return this;
-    }
+    MongooseHttpClientRequest *setContentType(const char *contentType);
     MongooseHttpClientRequest *setContentLength(int64_t contentLength) {
       _contentLength = contentLength;
       return this;

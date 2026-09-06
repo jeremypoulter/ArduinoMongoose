@@ -3,6 +3,8 @@
 #include <MongooseHttpClient.h>
 #include <MongooseHttpServer.h>
 
+#include <cstdlib>
+#include <cstring>
 #include <string>
 
 #include "test_support.h"
@@ -207,10 +209,81 @@ static void test_http_client_cancel_aborts_in_flight_request() {
       "close callback was not invoked after cancel()");
 }
 
+static void test_http_client_owns_uri_content_type_and_body_after_return() {
+  // The exact shape of the use-after-free this class's ownership fix
+  // targets: send() only *starts* the connection -- _uri, _contentType and
+  // _body are not read until onConnect(), on a later poll -- so a caller
+  // whose source buffers do not outlive the call used to hand the request
+  // dangling pointers. Free the sources immediately (worse than the original
+  // bug, which only needed them to survive past return) and clobber that
+  // memory with unrelated allocations before send() so a regression would
+  // observably corrupt the request instead of merely being UB that happens
+  // to still work.
+  ScopedMongoose mongoose;
+  MongooseHttpServer server;
+  TEST_ASSERT_TRUE(server.begin(18089));
+
+  std::string receivedUri;
+  std::string receivedContentType;
+  std::string receivedBody;
+  server.on("/scratch", HTTP_POST, [&](MongooseHttpServerRequest *request) {
+    receivedUri.assign(request->uri().c_str(), request->uri().length());
+    receivedContentType.assign(request->contentType().c_str(), request->contentType().length());
+    receivedBody.assign(request->body().c_str(), request->body().length());
+
+    MongooseHttpServerResponseBasic *response = request->beginResponse();
+    response->setCode(200);
+    response->setContent("ok");
+    request->send(response);
+  });
+
+  MongooseHttpClient client;
+  bool closed = false;
+
+  {
+    char *uri = (char *)malloc(64);
+    strcpy(uri, "http://127.0.0.1:18089/scratch");
+    char *contentType = (char *)malloc(32);
+    strcpy(contentType, "text/plain");
+    char *body = (char *)malloc(16);
+    strcpy(body, "scratch-body");
+
+    MongooseHttpClientRequest *request = client.beginRequest(uri);
+    request->setMethod(HTTP_POST);
+    request->setContentType(contentType);
+    request->setContent(body);
+    request->onClose([&closed]() { closed = true; });
+
+    free(uri);
+    free(contentType);
+    free(body);
+
+    // Encourage the allocator to hand that freed memory back out with
+    // different content before send() -- and long before the network I/O
+    // that actually reads it -- runs.
+    for (int i = 0; i < 8; i++) {
+      char *scratch = (char *)malloc(64);
+      memset(scratch, 'X', 64);
+      free(scratch);
+    }
+
+    TEST_ASSERT_TRUE(request->send());
+  }
+
+  TEST_ASSERT_TRUE_MESSAGE(
+      pumpUntil([&closed]() { return closed; }),
+      "request built from freed source buffers timed out");
+
+  TEST_ASSERT_EQUAL_STRING("/scratch", receivedUri.c_str());
+  TEST_ASSERT_EQUAL_STRING("text/plain", receivedContentType.c_str());
+  TEST_ASSERT_EQUAL_STRING("scratch-body", receivedBody.c_str());
+}
+
 void runHttpClientTests() {
   RUN_TEST(test_http_client_get_exposes_status_body_headers_and_onbody);
   RUN_TEST(test_http_client_post_and_put_round_trip);
   RUN_TEST(test_http_client_patch_and_delete);
   RUN_TEST(test_http_client_abort_returns_false_when_not_connected);
   RUN_TEST(test_http_client_cancel_aborts_in_flight_request);
+  RUN_TEST(test_http_client_owns_uri_content_type_and_body_after_return);
 }
