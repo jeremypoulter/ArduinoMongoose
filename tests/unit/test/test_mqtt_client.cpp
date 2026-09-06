@@ -11,6 +11,13 @@
 // API / build-only tests (no broker required)
 // ---------------------------------------------------------------------------
 
+// Exposes the protected handleEvent() so MG_EV_MQTT_OPEN can be injected
+// directly, without a real broker to reject the connection.
+class TestableMqttClient : public MongooseMqttClient {
+  public:
+    using MongooseMqttClient::handleEvent;
+};
+
 static void test_mqtt_api_setters_compile_and_do_not_crash() {
   MongooseMqttClient client;
 
@@ -31,6 +38,83 @@ static void test_mqtt_api_setters_compile_and_do_not_crash() {
 
   // Verify connected() returns false before any connect() call
   TEST_ASSERT_FALSE(client.connected());
+}
+
+static void test_mqtt_connack_code_tracks_broker_rejection() {
+  ScopedMongoose mongoose;
+  TestableMqttClient client;
+
+  std::string lastError;
+  bool portOneErrored = false;
+  client.onError([&lastError, &portOneErrored](const char *error) {
+    lastError = error;
+    portOneErrored = true;
+  });
+
+  // No attempt made yet.
+  TEST_ASSERT_EQUAL(0, client.connackCode());
+
+  // A 3.1.1 rejection (CONNACK_NOT_AUTHORIZED = 5) is recorded, and the error
+  // string names it -- this is the formatting #97 introduced and #99 partly
+  // rewrote, so pin the exact text rather than just the code.
+  int rejectCode = 5;
+  client.handleEvent(nullptr, MG_EV_MQTT_OPEN, &rejectCode);
+  TEST_ASSERT_EQUAL(5, client.connackCode());
+  TEST_ASSERT_EQUAL_STRING("CONNACK_NOT_AUTHORIZED (5)", lastError.c_str());
+
+  // ...and reset by the next connect() attempt. A manager *is* running here
+  // (ScopedMongoose called Mongoose.begin() above) and connect() does not
+  // block on the peer responding -- mg_mqtt_connect() starts a non-blocking
+  // connection attempt and returns immediately regardless of whether anything
+  // is listening on the target port. The point under test is simply that
+  // connackCode() is reset synchronously inside connect(), before any network
+  // event can occur, so it must not still describe the previous attempt.
+  portOneErrored = false;
+  client.connect("127.0.0.1:1", "arduino-mongoose-connack-test");
+  TEST_ASSERT_EQUAL(0, client.connackCode());
+
+  // Let that connection fail and get torn down before this function returns,
+  // rather than leaving it for ~ScopedMongoose() (Mongoose.end() ->
+  // mg_mgr_free()) to discover later. Unpumped, mg_mgr_free() still finds and
+  // errors it out on its way out -- but by then `lastError`, captured by
+  // reference in the onError handler above, has already been destroyed
+  // (locals unwind in reverse declaration order, and it is declared after
+  // `client`). The handler fires anyway and writes through the dangling
+  // reference: a real, 100%-reproducible heap-use-after-free under ASan, with
+  // no broker or timing involved -- this is what was actually crashing CI,
+  // not the exit-code/signal-number issue that PR upstream#100 fixes (that
+  // one is real too, just not what triggered this specific failure).
+  //
+  // Wait for the onError callback itself, not connected(): a refused
+  // connection never reaches MQTT CONNACK, so MongooseMqttClient::connected()
+  // (MongooseSocket::connected() && _connected) is false from the instant
+  // connect() returns and stays false throughout -- pumpUntil(!connected())
+  // would report success after its first, unconditional poll(), regardless of
+  // whether that poll actually processed the connection's teardown or not.
+  // It happened to pass under ASan only because a loopback refusal resolves
+  // fast enough to fit in that one poll's 10ms budget; that is incidental
+  // timing, not something this test should depend on. onError() is the
+  // signal that actually corresponds to the connection having been torn down
+  // (it is what the real bug's dangling reference was reached through).
+  TEST_ASSERT_TRUE_MESSAGE(
+      pumpUntil([&portOneErrored]() { return portOneErrored; }, 2000),
+      "connect() to a closed port never resolved");
+
+  // An accepted connection (ack == 0, the success case) leaves connackCode()
+  // at 0 -- confirms the two are not simply mirroring the raw ack byte.
+  int acceptCode = 0;
+  client.handleEvent(nullptr, MG_EV_MQTT_OPEN, &acceptCode);
+  TEST_ASSERT_EQUAL(0, client.connackCode());
+
+  // An MQTT 5 reason code (>= 0x80) is recorded the same way as a 3.1.1
+  // CONNACK return code -- mqtt_cb() in mongoose.c hands us the raw wire byte
+  // regardless of protocol version, so this is a real case, not merely
+  // defensive. #99's fix was keeping the pre-#97 generic string for exactly
+  // this case (no 3.1.1 name for it), so assert that text too.
+  int mqtt5RejectCode = 0x87;  // MQTT5 "Not authorized"
+  client.handleEvent(nullptr, MG_EV_MQTT_OPEN, &mqtt5RejectCode);
+  TEST_ASSERT_EQUAL(0x87, client.connackCode());
+  TEST_ASSERT_EQUAL_STRING("MQTT connection error: 135", lastError.c_str());
 }
 
 // ---------------------------------------------------------------------------
@@ -120,6 +204,7 @@ static void test_mqtt_subscribe_with_qos_and_disconnect_handler() {
 
 void runMqttClientTests() {
   RUN_TEST(test_mqtt_api_setters_compile_and_do_not_crash);
+  RUN_TEST(test_mqtt_connack_code_tracks_broker_rejection);
   RUN_TEST(test_mqtt_round_trip_with_local_broker);
   RUN_TEST(test_mqtt_subscribe_with_qos_and_disconnect_handler);
 }
