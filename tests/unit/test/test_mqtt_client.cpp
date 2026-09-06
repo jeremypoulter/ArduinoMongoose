@@ -68,6 +68,24 @@ static void test_mqtt_connack_code_tracks_broker_rejection() {
   client.connect("127.0.0.1:1", "arduino-mongoose-connack-test");
   TEST_ASSERT_EQUAL(0, client.connackCode());
 
+  // Let that connection fail and get torn down before this function returns,
+  // rather than leaving it for ~ScopedMongoose() (Mongoose.end() ->
+  // mg_mgr_free()) to discover later. Unpumped, mg_mgr_free() still finds and
+  // errors it out on its way out -- but by then `lastError`, captured by
+  // reference in the onError handler above, has already been destroyed
+  // (locals unwind in reverse declaration order, and it is declared after
+  // `client`). The handler fires anyway and writes through the dangling
+  // reference: a real, 100%-reproducible heap-use-after-free under ASan, with
+  // no broker or timing involved -- this is what was actually crashing CI,
+  // not the exit-code/signal-number issue that PR upstream#100 fixes (that
+  // one is real too, just not what triggered this specific failure).
+  // connected() is true as soon as connect() hands back a live connection
+  // object and false again once mongoose has processed its close, so this is
+  // exactly "wait until torn down", not a fixed guess at how long that takes.
+  TEST_ASSERT_TRUE_MESSAGE(
+      pumpUntil([&client]() { return !client.connected(); }, 2000),
+      "connect() to a closed port never resolved");
+
   // An accepted connection (ack == 0, the success case) leaves connackCode()
   // at 0 -- confirms the two are not simply mirroring the raw ack byte.
   int acceptCode = 0;
