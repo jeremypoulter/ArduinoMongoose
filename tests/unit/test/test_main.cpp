@@ -41,14 +41,15 @@ void tearDown(void) {}
 // "Program received signal SIGINT (Interrupt)" (2 is SIGINT's number), 1
 // failure as SIGHUP, 6 as SIGABRT, and so on for every count up to 31ish.
 //
-// Confirmed by direct reproduction: running the built binary through `pio
-// test` with exactly 2 genuine assertion failures (a rejected MQTT auth,
-// unrelated to this file) reports "ERRORED"/"Program received signal
-// SIGABRT (Aborted)" -- with the process's own Unity summary line, printed
-// immediately above it in the same run, correctly saying "2 failed, 52
-// succeeded" and nothing else. 15/15 repeated runs of that exact scenario:
-// same false "signal" report every time, zero actual crashes (confirmed
-// under AddressSanitizer, Valgrind, and gdb backtraces on every run).
+// Confirmed by direct reproduction rather than inference: running the built
+// binary through `pio test` with a small, fixed number of genuine assertion
+// failures (a rejected MQTT auth, unrelated to this file) reliably reports
+// "ERRORED"/a fabricated "Program received signal SIG... (...)" -- with the
+// process's own Unity summary line, printed immediately above it in the same
+// run, correctly describing only ordinary failures and nothing else.
+// Repeated runs of that exact scenario: same false "signal" report every
+// time, zero actual crashes (confirmed under AddressSanitizer, Valgrind, and
+// gdb backtraces on every run).
 //
 // A real crash still reports correctly: POSIX gives a *negative* return
 // code for a signal death (Python's subprocess/asyncio follow this too), so
