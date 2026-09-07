@@ -41,6 +41,32 @@ MongooseSocket::MongooseSocket(mg_connection *nc) :
 
 MongooseSocket::~MongooseSocket()
 {
+  // Detach from the connection before we go, but only if we still own it.
+  //
+  // disconnect() and abort() only *flag* the connection; mongoose does not
+  // actually close and free it until the next mg_mgr_poll(). Until then
+  // nc->fn_data still points here, so an object deleted straight after either
+  // call is dereferenced by eventHandler() on the next MG_EV_POLL. That is a
+  // use-after-free for every subclass the application owns and deletes --
+  // MongooseHttpClientRequest only escapes it by self-deleting from its own
+  // onClose(), which is to say once mongoose has already finished with it.
+  //
+  // But ownership of nc can also have already passed to a *different* object
+  // before this one is destroyed: on a kept-alive connection,
+  // MongooseHttpServerRequest::handleHeaders() installs a new request as
+  // nc->fn_data for the next request, then deletes the one that just
+  // completed. If we clobbered fn_data/is_closing unconditionally here, that
+  // delete would rip the connection out from under the new owner and every
+  // second request on a kept-alive connection would fail. Only touch the
+  // connection when it is still pointing at us.
+  //
+  // eventHandler() already null-checks fn_data, so clearing it (when it is
+  // ours to clear) makes any further event on this connection a no-op.
+  if(_nc && _nc->fn_data == this) {
+    _nc->fn_data = nullptr;
+    _nc->is_closing = 1;
+  }
+  _nc = nullptr;
 }
 
 void MongooseSocket::eventHandler(mg_connection *nc, int ev, void *p)

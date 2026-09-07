@@ -31,11 +31,15 @@ class MongooseHttpClientRequest : public MongooseSocket
     MongooseHttpResponseHandler _onResponse;
     MongooseHttpResponseHandler _onBody;
 
-    const char *_uri;
+    // Owned copies. send() only starts the connection; the URI, content type
+    // and body are not read until onConnect() fires on a later poll, by which
+    // time a caller's local String or stack buffer is long gone. Holding the
+    // caller's pointers made every such call site a use-after-free.
+    char *_uri;
     HttpRequestMethodComposite _method;
-    const char *_contentType;
+    char *_contentType;
     int64_t _contentLength;
-    const uint8_t *_body;
+    uint8_t *_body;
     char *_extraHeaders;
     uint64_t _timeout_ms;
 
@@ -50,22 +54,36 @@ class MongooseHttpClientRequest : public MongooseSocket
     MongooseHttpClientRequest(const char *uri);
     virtual ~MongooseHttpClientRequest();
 
+    // _uri/_contentType/_body are owned heap buffers now (see above); the
+    // default-generated copy/move would shallow-copy those pointers, so a
+    // copy's destructor freeing them leaves the original dangling, and both
+    // objects' destructors freeing them is a double-free. There is no
+    // legitimate reason to copy or move a request in flight -- it is always
+    // used through a pointer -- so remove the footgun rather than implement
+    // deep-copy semantics nothing needs.
+    MongooseHttpClientRequest(const MongooseHttpClientRequest &) = delete;
+    MongooseHttpClientRequest &operator=(const MongooseHttpClientRequest &) = delete;
+    MongooseHttpClientRequest(MongooseHttpClientRequest &&) = delete;
+    MongooseHttpClientRequest &operator=(MongooseHttpClientRequest &&) = delete;
+
     bool send();
 
     MongooseHttpClientRequest *setMethod(HttpRequestMethodComposite method) {
       _method = method;
       return this;
     }
-    MongooseHttpClientRequest *setContentType(const char *contentType) {
-      _contentType = contentType;
-      return this;
-    }
+    MongooseHttpClientRequest *setContentType(const char *contentType);
     MongooseHttpClientRequest *setContentLength(int64_t contentLength) {
       _contentLength = contentLength;
       return this;
     }
     MongooseHttpClientRequest *setContent(const char *content) {
-      setContent((uint8_t *)content, strlen(content));
+      // setContent(const uint8_t*, size_t) already treats a null/zero-length
+      // body as "no body" -- match that here instead of calling strlen() on
+      // a possible nullptr. The wrappers in MongooseHttpClient.cpp guard
+      // their own nullptr bodies before reaching here, but this overload is
+      // public API in its own right and should not crash on the same input.
+      setContent((const uint8_t *)content, content ? strlen(content) : 0);
       return this;
     }
     MongooseHttpClientRequest *setContent(const uint8_t *content, size_t len);
