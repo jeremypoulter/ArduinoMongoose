@@ -214,11 +214,18 @@ static void test_http_client_owns_uri_content_type_and_body_after_return() {
   // targets: send() only *starts* the connection -- _uri, _contentType and
   // _body are not read until onConnect(), on a later poll -- so a caller
   // whose source buffers do not outlive the call used to hand the request
-  // dangling pointers. Free the sources immediately (worse than the original
-  // bug, which only needed them to survive past return) and clobber that
-  // memory with unrelated allocations before send() so a regression would
-  // observably corrupt the request instead of merely being UB that happens
-  // to still work.
+  // dangling pointers.
+  //
+  // Deliberately does *not* free the source buffers to try to trigger that:
+  // freeing and hoping the allocator hands the memory back out differently
+  // is itself undefined behaviour, is inherently non-deterministic across
+  // allocators/platforms, and would make a real regression here show up as a
+  // hard crash rather than a clean, reportable assertion failure. Instead,
+  // keep the buffers alive but *overwrite* them with different (still valid)
+  // content after send() -- well-defined, deterministic, and if the request
+  // were still holding the caller's raw pointers rather than its own copies,
+  // the server would observably receive the overwritten values instead of
+  // the originals.
   ScopedMongoose mongoose;
   MongooseHttpServer server;
   TEST_ASSERT_TRUE(server.begin(18089));
@@ -240,39 +247,30 @@ static void test_http_client_owns_uri_content_type_and_body_after_return() {
   MongooseHttpClient client;
   bool closed = false;
 
-  {
-    char *uri = (char *)malloc(64);
-    strcpy(uri, "http://127.0.0.1:18089/scratch");
-    char *contentType = (char *)malloc(32);
-    strcpy(contentType, "text/plain");
-    char *body = (char *)malloc(16);
-    strcpy(body, "scratch-body");
+  char uri[64];
+  strcpy(uri, "http://127.0.0.1:18089/scratch");
+  char contentType[32];
+  strcpy(contentType, "text/plain");
+  char body[16];
+  strcpy(body, "scratch-body");
 
-    MongooseHttpClientRequest *request = client.beginRequest(uri);
-    request->setMethod(HTTP_POST);
-    request->setContentType(contentType);
-    request->setContent(body);
-    request->onClose([&closed]() { closed = true; });
+  MongooseHttpClientRequest *request = client.beginRequest(uri);
+  request->setMethod(HTTP_POST);
+  request->setContentType(contentType);
+  request->setContent(body);
+  request->onClose([&closed]() { closed = true; });
 
-    free(uri);
-    free(contentType);
-    free(body);
+  TEST_ASSERT_TRUE(request->send());
 
-    // Encourage the allocator to hand that freed memory back out with
-    // different content before send() -- and long before the network I/O
-    // that actually reads it -- runs.
-    for (int i = 0; i < 8; i++) {
-      char *scratch = (char *)malloc(64);
-      memset(scratch, 'X', 64);
-      free(scratch);
-    }
-
-    TEST_ASSERT_TRUE(request->send());
-  }
+  // Overwrite in place, still well within each buffer's allocated size, right
+  // after send() and before any poll has had a chance to read them.
+  strcpy(uri, "http://CLOBBERED");
+  strcpy(contentType, "text/CLOBBERED");
+  strcpy(body, "CLOBBERED-BODY");
 
   TEST_ASSERT_TRUE_MESSAGE(
       pumpUntil([&closed]() { return closed; }),
-      "request built from freed source buffers timed out");
+      "request timed out");
 
   TEST_ASSERT_EQUAL_STRING("/scratch", receivedUri.c_str());
   TEST_ASSERT_EQUAL_STRING("text/plain", receivedContentType.c_str());

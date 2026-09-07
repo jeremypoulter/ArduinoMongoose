@@ -69,7 +69,9 @@ bool MongooseHttpClient::post(const char* uri, const char *contentType, const ch
   MongooseHttpClientRequest *request = beginRequest(uri);
   request->setMethod(HTTP_POST);
   request->setContentType(contentType);
-  request->setContent(body);
+  if(nullptr != body) {
+    request->setContent(body);
+  }
   if(nullptr != onResponse) {
     request->onResponse(onResponse);
   }
@@ -88,7 +90,9 @@ bool MongooseHttpClient::put(const char* uri, const char *contentType, const cha
   MongooseHttpClientRequest *request = beginRequest(uri);
   request->setMethod(HTTP_PUT);
   request->setContentType(contentType);
-  request->setContent(body);
+  if(nullptr != body) {
+    request->setContent(body);
+  }
   if(nullptr != onResponse) {
     request->onResponse(onResponse);
   }
@@ -107,7 +111,9 @@ bool MongooseHttpClient::patch(const char* uri, const char *contentType, const c
   MongooseHttpClientRequest *request = beginRequest(uri);
   request->setMethod(HTTP_PATCH);
   request->setContentType(contentType);
-  request->setContent(body);
+  if(nullptr != body) {
+    request->setContent(body);
+  }
   if(nullptr != onResponse) {
     request->onResponse(onResponse);
   }
@@ -268,8 +274,23 @@ bool MongooseHttpClientRequest::send()
 
 MongooseHttpClientRequest *MongooseHttpClientRequest::setContentType(const char *contentType)
 {
+  if(nullptr == contentType) {
+    free(_contentType);
+    _contentType = nullptr;
+    return this;
+  }
+
+  // Same reasoning as setContent(): duplicate first, so a failed allocation
+  // leaves whatever Content-Type was already set rather than silently
+  // dropping it.
+  char *copy = dupString(contentType);
+  if(nullptr == copy) {
+    DBUGF("Failed to allocate content type '%s'", contentType);
+    return this;
+  }
+
   free(_contentType);
-  _contentType = contentType ? dupString(contentType) : nullptr;
+  _contentType = copy;
   return this;
 }
 
