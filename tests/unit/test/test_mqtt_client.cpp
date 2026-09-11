@@ -40,6 +40,22 @@ static void test_mqtt_api_setters_compile_and_do_not_crash() {
   TEST_ASSERT_FALSE(client.connected());
 }
 
+// Mongoose 7 sends mg_mqtt_opts.keepalive to the broker verbatim, and 0 means
+// "no timeout" (unlike 6.18, which substituted 60 for a 0). Without a
+// non-zero default, LWT would never fire on an ungraceful disconnect.
+static void test_mqtt_keepalive_defaults_to_60_and_is_settable() {
+  MongooseMqttClient client;
+
+  TEST_ASSERT_EQUAL(60, client.keepAlive());
+
+  client.setKeepAlive(30);
+  TEST_ASSERT_EQUAL(30, client.keepAlive());
+
+  // 0 stays available for callers who explicitly want no timeout.
+  client.setKeepAlive(0);
+  TEST_ASSERT_EQUAL(0, client.keepAlive());
+}
+
 static void test_mqtt_connack_code_tracks_broker_rejection() {
   ScopedMongoose mongoose;
   TestableMqttClient client;
@@ -204,6 +220,7 @@ static void test_mqtt_subscribe_with_qos_and_disconnect_handler() {
 
 void runMqttClientTests() {
   RUN_TEST(test_mqtt_api_setters_compile_and_do_not_crash);
+  RUN_TEST(test_mqtt_keepalive_defaults_to_60_and_is_settable);
   RUN_TEST(test_mqtt_connack_code_tracks_broker_rejection);
   RUN_TEST(test_mqtt_round_trip_with_local_broker);
   RUN_TEST(test_mqtt_subscribe_with_qos_and_disconnect_handler);

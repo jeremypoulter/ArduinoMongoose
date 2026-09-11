@@ -20,6 +20,7 @@ MongooseMqttClient::MongooseMqttClient() :
   _will_message(),
   _will_retain(false),
   _connected(false),
+  _keepalive(60),
   _onConnect(nullptr),
   _onMessage(nullptr),
   _onDisconnect(nullptr),
@@ -125,6 +126,7 @@ bool MongooseMqttClient::connect(MongooseMqttProtocol protocol, const char *serv
       .client_id = mg_str_s(client_id),
       .topic = _will_topic,
       .message = _will_message,
+      .keepalive = _keepalive,
       .retain = _will_retain,
       .clean = true
     };

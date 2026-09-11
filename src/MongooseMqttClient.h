@@ -38,6 +38,7 @@ class MongooseMqttClient : public MongooseSocket
     MongooseString _will_message;
     bool _will_retain;
     bool _connected;
+    uint16_t _keepalive;
 
     MongooseMqttConnectionHandler _onConnect;
     MongooseMqttMessageHandler _onMessage;
@@ -125,6 +126,25 @@ class MongooseMqttClient : public MongooseSocket
       _will_topic = topic;
       _will_message = message;
       _will_retain = retain;
+    }
+
+    /**
+     * @brief Set the CONNECT keepalive interval
+     *
+     * Mongoose 7 sends this value to the broker verbatim, and 0 means "no
+     * timeout" -- unlike 6.18, which silently substituted 60 for a 0 here.
+     * With no keepalive the broker never notices an ungraceful disconnect
+     * (power loss, WiFi drop), so it never fires the Last Will. Defaults to
+     * 60s; pass 0 to opt back into "no timeout" explicitly.
+     *
+     * @param seconds Keepalive interval in seconds, or 0 to disable
+     */
+    void setKeepAlive(uint16_t seconds) {
+      _keepalive = seconds;
+    }
+
+    uint16_t keepAlive() const {
+      return _keepalive;
     }
 
     // Correct-spelling alias; setLastWillAndTestimment kept for backward compatibility
