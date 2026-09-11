@@ -57,7 +57,7 @@ void setup()
   Mongoose.begin();
 
   // Set up WebSocket event handlers
-  wsClient.setOnOpen([](MongooseWebSocketClient *client) {
+  wsClient.onOpen([](MongooseWebSocketClient *client) {
     DBUGLN("WebSocket connected!");
     
     // Send a test message once connected
@@ -66,7 +66,7 @@ void setup()
     DBUGF("Sent: %s", msg);
   });
 
-  wsClient.setReceiveTXTcallback([](int flags, const uint8_t *data, size_t len) {
+  wsClient.onMessage([](int flags, const uint8_t *data, size_t len) {
     // Print received message (properly handle non-null-terminated data)
     // Use a fixed buffer (512 bytes - reasonable for typical WebSocket messages
     // in embedded systems) to avoid VLA issues and prevent stack overflow.
@@ -109,9 +109,9 @@ void loop()
 
   // Send a message every 10 seconds
   unsigned long now = millis();
-  if(wsClient.isConnectionOpen() && now >= next_time) {
+  if(wsClient.connected() && now >= next_time) {
     String msg = "Uptime: " + String(now / 1000) + " seconds";
-    wsClient.sendTXT(msg.c_str(), msg.length());
+    wsClient.sendTXT(msg);
     DBUGF("Sent: %s", msg.c_str());
     next_time = now + 10000;
   }

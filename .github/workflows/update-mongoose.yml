@@ -1,0 +1,76 @@
+name: Update vendored Mongoose
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 5 * * *'
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  update-mongoose:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Determine latest upstream tag
+        id: detect
+        shell: bash
+        run: ./.github/scripts/detect-mongoose-tag.sh
+
+      - name: Update vendored files
+        if: steps.detect.outputs.changed == 'true'
+        shell: bash
+        env:
+          LATEST_TAG: ${{ steps.detect.outputs.latest_tag }}
+        run: ./.github/scripts/update-vendored-mongoose.sh
+
+      - name: Exit neutrally when no update is needed
+        if: steps.detect.outputs.changed != 'true'
+        uses: actions/github-script@v9
+        env:
+          CURRENT_TAG: ${{ steps.detect.outputs.current_tag }}
+        with:
+          script: |
+            const run = require('./.github/scripts/no-update-neutral.js')
+            await run({ core })
+
+      - name: Create pull request
+        if: steps.detect.outputs.changed == 'true'
+        id: cpr
+        uses: peter-evans/create-pull-request@v8
+        with:
+          base: mongoose_7
+          branch: ci/update-mongoose-${{ steps.detect.outputs.latest_tag }}
+          delete-branch: true
+          commit-message: "chore: update mongoose to ${{ steps.detect.outputs.latest_tag }}"
+          title: "chore: update mongoose to ${{ steps.detect.outputs.latest_tag }}"
+          body: |
+            This PR updates vendored Mongoose sources to `${{ steps.detect.outputs.latest_tag }}`.
+
+            Note: the updater workflow intentionally does **not** run build/tests by design.
+            Normal repository PR checks are expected to validate these changes.
+          labels: |
+            dependencies
+            upstream-sync
+          add-paths: |
+            src/mongoose.c
+            src/mongoose.h
+            .mongoose-version
+
+      - name: Close superseded updater PRs
+        if: steps.detect.outputs.changed == 'true'
+        uses: actions/github-script@v9
+        env:
+          LATEST_TAG: ${{ steps.detect.outputs.latest_tag }}
+          CURRENT_PR_NUMBER: ${{ steps.cpr.outputs.pull-request-number }}
+          CURRENT_PR_URL: ${{ steps.cpr.outputs.pull-request-url }}
+        with:
+          script: |
+            const run = require('./.github/scripts/close-superseded-mongoose-prs.js')
+            await run({ github, context })

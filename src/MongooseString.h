@@ -1,12 +1,18 @@
 #ifndef MongooseString_h
 #define MongooseString_h
 
-#ifdef ARDUINO
-#include "Arduino.h"
-#endif
+#include "MongoosePlatform.h"
 
 #include "mongoose.h"
 
+#define MG_NULL_STR \
+  { nullptr, 0 }
+
+/**
+ * @brief A string wrapper class interoperable with mg_str and Arduino String
+ * 
+ * Simplifies conversions and comparisons between C-strings, Arduino Strings, and Mongoose mg_str.
+ */
 class MongooseString
 {
   private:
@@ -35,32 +41,34 @@ class MongooseString
       _string(string) {
     }
     MongooseString(const char *string) :
-      _string(mg_mk_str(string)) {
+      _string(mg_str_s(string)) {
     }
     MongooseString(const char *string, size_t len) :
-      _string(mg_mk_str_n(string, len)) {
+      _string(mg_str_n(string, len)) {
     }
 #ifdef ARDUINO
     MongooseString(String &str)
     {
-      _string.p = str.c_str();
-      _string.len = str.length();
+      _string = mg_str_n(str.c_str(), str.length());
     }
 #endif
 
-    operator mg_str ()
+// The 'fix' in mongoose.h for mg_str breaks this
+#undef mg_str
+    operator struct mg_str ()
     {
       return _string;
     }
 
-    operator mg_str *()
+    operator struct mg_str *()
     {
-      return &_string;
+      return _string.buf ? &_string : nullptr;
     }
+#define mg_str(s) mg_str_s(s)
 
     operator const char *() const
     {
-      return _string.p;
+      return _string.buf;
     }
 
     // use a function pointer to allow for "if (s)" without the
@@ -68,7 +76,7 @@ class MongooseString
     // http://www.artima.com/cppsource/safebool.html
     operator StringIfHelperType() const
     {
-      return NULL != _string.p ? &MongooseString::StringIfHelper : 0;
+      return nullptr != _string.buf ? &MongooseString::StringIfHelper : 0;
     }
     
 #ifdef ARDUINO
@@ -79,11 +87,11 @@ class MongooseString
 #endif
 
     MongooseString & operator = (const char *cstr) {
-      _string = mg_mk_str(cstr);
+      _string = mg_str_s(cstr);
       return *this;
     }
     MongooseString & operator = (const mg_str *rhs) {
-      _string.p = rhs ? rhs->p : NULL;
+      _string.buf = rhs ? rhs->buf : nullptr;
       _string.len = rhs ? rhs->len : 0;
       return *this;
     }
@@ -94,18 +102,26 @@ class MongooseString
 //    MongooseString & operator = (const String &rhs);
 //    MongooseString & operator = (const __FlashStringHelper *str);
 
-    void get(const char * &p, size_t &len) {
-      p = _string.p;
+    void get(const char * &p, size_t &len) const {
+      p = _string.buf;
       len = _string.len;
     }
 
-    size_t length() {
+    /**
+     * @brief Get the length of the string
+     * @return size_t Length of the string in bytes
+     */
+    size_t length() const {
       return _string.len;
     }
 
-    const char *c_str()
+    /**
+     * @brief Get the underlying C-string pointer (may not be null-terminated)
+     * @return const char*
+     */
+    const char *c_str() const
     {
-      return _string.p;
+      return _string.buf;
     }
 
     int compareTo(const mg_str &str) const {
@@ -115,7 +131,7 @@ class MongooseString
       return mg_strcmp(_string, str._string);
     }
     int compareTo(const char *str) const {
-      mg_str mgStr = mg_mk_str(str);
+      mg_str mgStr = mg_str_s(str);
       return mg_strcmp(_string, mgStr);
     }
 
@@ -131,18 +147,13 @@ class MongooseString
 
     int compareToIgnoreCase(const mg_str &str) const
     {
-      size_t n2 = str.len, n1 = _string.len;
-      int r = mg_ncasecmp(_string.p, str.p, (n1 < n2) ? n1 : n2);
-      if (r == 0) {
-        return n1 - n2;
-      }
-      return r;
+      return mg_strcasecmp(_string, str);
     }
     int compareToIgnoreCase(const MongooseString &str) const {
       return compareToIgnoreCase(str._string);
     }
     int compareToIgnoreCase(const char *str) const {
-      mg_str mgStr = mg_mk_str(str);
+      mg_str mgStr = mg_str_s(str);
       return compareToIgnoreCase(mgStr);
     }
 
@@ -176,13 +187,13 @@ class MongooseString
       return !equals(str);
     }
 
-    mg_str toMgStr() {
+    mg_str toMgStr() const {
       return _string;
     }
 
 #ifdef ARDUINO
     int compareTo(const String &str) const {
-      mg_str mgStr = mg_mk_str_n(str.c_str(), str.length());
+      mg_str mgStr = mg_str_n(str.c_str(), str.length());
       return mg_strcmp(_string, mgStr);
     }
 
@@ -199,13 +210,14 @@ class MongooseString
     }
 
     String toString() {
-      if(NULL == _string.p) {
+      if(nullptr == _string.buf) {
         return String("");
       }
-      mg_str copy = mg_strdup_nul(_string);
-      String ret = String(copy.p);
-      mg_strfree(&copy);
-
+      String ret;
+      ret.reserve(_string.len);
+      for (size_t i = 0; i < _string.len; i++) {
+        ret += _string.buf[i];
+      }
       return ret;
     }
 #endif // ARDUINO
