@@ -13,6 +13,13 @@
 // callback. Setting to 0 will save some runtime memory but accessing the HTTP
 // message details outside of the onReceive callback will give undefined behaviour.
 // The body may not allways be avalible even in onReceive, eg file upload
+//
+// Even with this on, body() is never copied -- it stays a pointer into
+// Mongoose's receive buffer for the lifetime of the request, valid only for
+// the duration of the request handler call (MongooseHttpServerEndpoint's
+// onRequest, invoked synchronously from handleMessage()). Reading it from a
+// deferred/async continuation after the handler has returned is undefined
+// behaviour, since Mongoose reclaims that buffer once the event completes.
 #ifndef MG_COPY_HTTP_MESSAGE
 #define MG_COPY_HTTP_MESSAGE 1
 #endif
