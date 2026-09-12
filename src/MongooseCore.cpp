@@ -25,6 +25,44 @@ MongooseCore::MongooseCore() :
 {
 }
 
+bool mongooseRemoteAddress(struct mg_connection *nc, char *buf, size_t len)
+{
+  if(NULL == buf || len < 1) {
+    return false;
+  }
+  buf[0] = '\0';
+
+  if(NULL == nc) {
+    return false;
+  }
+
+  /*
+   * mg_parse_address() zeroes the address and sets AF_INET before any
+   * resolution happens, so an all-zero address means "no peer yet" rather
+   * than a genuine 0.0.0.0.
+   */
+  const unsigned char *addr;
+  size_t addr_len;
+#if MG_ENABLE_IPV6
+  if(AF_INET6 == nc->sa.sa.sa_family) {
+    addr = (const unsigned char *) &nc->sa.sin6.sin6_addr;
+    addr_len = sizeof(nc->sa.sin6.sin6_addr);
+  } else
+#endif
+  {
+    addr = (const unsigned char *) &nc->sa.sin.sin_addr;
+    addr_len = sizeof(nc->sa.sin.sin_addr);
+  }
+
+  while(addr_len-- > 0) {
+    if(0 != addr[addr_len]) {
+      return mg_sock_addr_to_str(&nc->sa, buf, len, MG_SOCK_STRINGIFY_IP) > 0;
+    }
+  }
+
+  return false;
+}
+
 void MongooseCore::begin() 
 {
   mg_mgr_init(&mgr, this);
