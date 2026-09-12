@@ -13,6 +13,9 @@
 
 typedef std::function<const char *(void)> ArduinoMongooseGetRootCaCallback;
 
+/** @brief Enough for the longest IPv6 text form plus its terminator */
+#define MONGOOSE_ADDRESS_LEN 46
+
 /**
  * @brief Core Mongoose manager for Arduino
  * 
