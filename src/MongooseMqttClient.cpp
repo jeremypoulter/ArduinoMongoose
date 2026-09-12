@@ -28,7 +28,7 @@ MongooseMqttClient::MongooseMqttClient() :
   _onError(NULL),
   _onClose(NULL)
 {
-
+  _remoteAddress[0] = '\0';
 }
 
 MongooseMqttClient::~MongooseMqttClient()
@@ -46,7 +46,12 @@ void MongooseMqttClient::eventHandler(struct mg_connection *nc, int ev, void *p)
 {
   struct mg_mqtt_message *msg = (struct mg_mqtt_message *) p;
 
-  if (ev != MG_EV_POLL) { DBUGF("%s %p: %d", __PRETTY_FUNCTION__, nc, ev); }
+  if (ev != MG_EV_POLL) {
+    DBUGF("%s %p: %d", __PRETTY_FUNCTION__, nc, ev);
+    // Keep the resolved broker address current while we still have the
+    // connection; the peer can differ between reconnects.
+    mongooseRemoteAddress(nc, _remoteAddress, sizeof(_remoteAddress));
+  }
 
   switch (ev) 
   {

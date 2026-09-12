@@ -9,6 +9,7 @@
 
 #include <functional>
 
+#include "MongooseCore.h"
 #include "MongooseString.h"
 
 class MongooseMqttClient;
@@ -39,6 +40,7 @@ class MongooseMqttClient
     struct mg_connection *_nc;
     bool _connected;
     bool _reject_unauthorized; 
+    char _remoteAddress[MONGOOSE_ADDRESS_LEN];
 
     MongooseMqttConnectionHandler _onConnect;
     MongooseMqttMessageHandler _onMessage;
@@ -97,6 +99,15 @@ class MongooseMqttClient
 
   bool connected() {
     return _nc &&  _connected;
+  }
+
+  /*
+   * The address the broker was resolved to, or "" if that is not known yet.
+   * Recorded as events arrive, so it stays readable from a handler after the
+   * connection has gone.
+   */
+  const char *remoteAddress() {
+    return _remoteAddress;
   }
 
   void onMessage(MongooseMqttMessageHandler fnHandler) {

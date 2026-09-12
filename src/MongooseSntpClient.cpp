@@ -18,7 +18,7 @@ MongooseSntpClient::MongooseSntpClient() :
   _onTime(NULL),
   _onError(NULL)
 {
-
+  _remoteAddress[0] = '\0';
 }
 
 MongooseSntpClient::~MongooseSntpClient()
@@ -36,7 +36,12 @@ void MongooseSntpClient::eventHandler(struct mg_connection *nc, int ev, void *p)
 {
   struct mg_sntp_message *msg = (struct mg_sntp_message *) p;
 
-  if (ev != MG_EV_POLL) { DBUGF("%s %p: %d", __PRETTY_FUNCTION__, nc, ev); }
+  if (ev != MG_EV_POLL) {
+    DBUGF("%s %p: %d", __PRETTY_FUNCTION__, nc, ev);
+    // Keep the resolved server address current while we still have the
+    // connection; a pool hostname resolves to a different peer each time.
+    mongooseRemoteAddress(nc, _remoteAddress, sizeof(_remoteAddress));
+  }
 
   switch (ev) 
   {
