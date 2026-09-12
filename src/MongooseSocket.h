@@ -6,6 +6,7 @@
 #include <mongoose.h>
 
 #include <MongooseString.h>
+#include <MongooseCore.h>
 
 #include <functional>
 
@@ -32,8 +33,10 @@ class MongooseSocket
     MongooseString _host;
     MongooseString _cert;
     MongooseString _key;
+    char _remoteAddress[MONGOOSE_ADDRESS_LEN];
 
     void processEvent(struct mg_connection *nc, int ev, void *p);
+    void recordRemoteAddress(struct mg_connection *nc);
   protected:
     static void eventHandler(struct mg_connection *nc, int ev, void *p);
 
@@ -137,18 +140,40 @@ class MongooseSocket
 
     /**
      * @brief Get the remote network address
-     * @return mg_addr*
+     * @return mg_addr*, or nullptr when there is no connection
+     *
+     * Mongoose clears the connection pointer before onClose() runs, so this
+     * returns nullptr rather than dereferencing it. Use remoteAddress() to
+     * read the address from a close or error handler.
      */
     mg_addr *getRemoteAddress() {
-      return &_nc->rem;
+      return _nc ? &_nc->rem : nullptr;
     }
 
     /**
      * @brief Get the local network address
-     * @return mg_addr*
+     * @return mg_addr*, or nullptr when there is no connection
      */
     mg_addr *getLocalAddress() {
-      return &_nc->loc;
+      return _nc ? &_nc->loc : nullptr;
+    }
+
+    /**
+     * @brief The address the peer was resolved to, as text
+     * @return the address, or "" when there is no resolved peer
+     *
+     * Mongoose resolves the peer asynchronously and stores the answer on the
+     * connection, so this needs no name lookup of its own -- which matters
+     * because the synchronous resolvers block, and on a single-threaded
+     * application task under a watchdog that is a reboot rather than a delay.
+     *
+     * Recorded as events arrive, so it stays readable from a close or error
+     * handler after Mongoose has finished with the connection. An empty string
+     * means the peer was never resolved, which is how an error handler can tell
+     * a name that does not resolve from a peer that refused the connection.
+     */
+    const char *remoteAddress() {
+      return _remoteAddress;
     }
 
     static const char Type = 'S';

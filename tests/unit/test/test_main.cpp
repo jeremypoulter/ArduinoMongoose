@@ -12,6 +12,7 @@ void runWebSocketTests();
 void runMqttClientTests();
 void runSntpClientTests();
 void runMdnsTests();
+void runSocketAddressTests();
 
 static int runAllTests() {
   UNITY_BEGIN();
@@ -24,6 +25,7 @@ static int runAllTests() {
   runMqttClientTests();
   runSntpClientTests();
   runMdnsTests();
+  runSocketAddressTests();
   return UNITY_END();
 }
 
