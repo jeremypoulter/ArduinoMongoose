@@ -23,7 +23,7 @@ MongooseSocket::MongooseSocket() :
   _cert(),
   _key()
 {
-
+  _remoteAddress[0] = '\0';
 }
 
 MongooseSocket::MongooseSocket(mg_connection *nc) :
@@ -36,7 +36,7 @@ MongooseSocket::MongooseSocket(mg_connection *nc) :
   _cert(),
   _key()
 {
-
+  _remoteAddress[0] = '\0';
 }
 
 MongooseSocket::~MongooseSocket()
@@ -81,6 +81,10 @@ void MongooseSocket::processEvent(mg_connection *nc, int ev, void *p)
 {
   if (ev != MG_EV_POLL) {
     DBUGF("%s %p %p: %d", __PRETTY_FUNCTION__, nc, this, ev);
+    // Record the resolved peer while we still have the connection: _nc is
+    // cleared before onClose() runs, and the peer can differ between
+    // reconnects. An unresolved address records as "".
+    recordRemoteAddress(nc);
   }
 
   switch (ev) 
@@ -158,6 +162,32 @@ void MongooseSocket::processEvent(mg_connection *nc, int ev, void *p)
       handleEvent(nc, ev, p);
       break;
     }
+  }
+}
+
+void MongooseSocket::recordRemoteAddress(mg_connection *nc)
+{
+  _remoteAddress[0] = '\0';
+
+  if(nullptr == nc) {
+    return;
+  }
+
+  /*
+   * Mongoose parses the port out of the URL before resolving and leaves the
+   * address zeroed until the DNS answer lands, so an all-zero address means
+   * "no peer yet" rather than a genuine 0.0.0.0 or ::.
+   */
+  bool resolved;
+  if(nc->rem.is_ip6) {
+    resolved = (0 != nc->rem.addr.ip6[0]) || (0 != nc->rem.addr.ip6[1]);
+  } else {
+    resolved = (0 != nc->rem.addr.ip4);
+  }
+
+  if(resolved) {
+    mg_snprintf(_remoteAddress, sizeof(_remoteAddress), "%M", mg_print_ip,
+                &nc->rem);
   }
 }
 
