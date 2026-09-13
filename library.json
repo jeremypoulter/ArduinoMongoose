@@ -73,20 +73,6 @@
       ]
     },
     {
-      "name": "simplest_web_server_esp",
-      "base": "examples/simplest_web_server_esp",
-      "files": [
-        "src/simplest_web_server.cpp"
-      ]
-    },
-    {
-      "name": "simplest_web_server_native",
-      "base": "examples/simplest_web_server_native",
-      "files": [
-        "src/simplest_web_server.c"
-      ]
-    },
-    {
       "name": "sntp_client",
       "base": "examples/sntp_client",
       "files": [
