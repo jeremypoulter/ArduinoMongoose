@@ -1,0 +1,12 @@
+PROJECT_NAME           = "ArduinoMongoose"
+PROJECT_BRIEF          = "A wrapper for Mongoose to help build into Arduino framework."
+OUTPUT_DIRECTORY       = docs_output
+GENERATE_HTML          = YES
+GENERATE_XML           = YES
+XML_OUTPUT             = xml
+HTML_OUTPUT            = html
+INPUT                  = src/ README.md
+EXCLUDE                = src/mongoose.c src/mongoose.h src/mongoose_config.h src/example_root_ca.h
+USE_MDFILE_AS_MAINPAGE = README.md
+RECURSIVE              = YES
+EXTRACT_ALL            = YES

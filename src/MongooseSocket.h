@@ -1,0 +1,186 @@
+#ifndef MongooseSocket_h
+#define MongooseSocket_h
+
+#include "MongoosePlatform.h"
+
+#include <mongoose.h>
+
+#include <MongooseString.h>
+#include <MongooseCore.h>
+
+#include <functional>
+
+#define MONGOOSE_SOCKET_TYPE    0
+
+typedef std::function<void(const char *error)> MongooseSocketErrorHandler;
+typedef std::function<void()> MongooseSocketCloseHandler;
+
+/**
+ * @brief Base class for Mongoose network sockets
+ * 
+ * Provides core socket management, connection state, and event routing.
+ */
+class MongooseSocket
+{
+  private:
+    mg_connection *_nc;
+
+    MongooseSocketErrorHandler _onError;
+    MongooseSocketCloseHandler _onClose;
+
+    bool _secure;
+    bool _reject_unauthorized;
+    MongooseString _host;
+    MongooseString _cert;
+    MongooseString _key;
+    char _remoteAddress[MONGOOSE_ADDRESS_LEN];
+
+    void processEvent(struct mg_connection *nc, int ev, void *p);
+    void recordRemoteAddress(struct mg_connection *nc);
+  protected:
+    static void eventHandler(struct mg_connection *nc, int ev, void *p);
+
+    virtual void onOpen(mg_connection *nc);
+    virtual void onResolve(mg_connection *nc);
+    virtual void onConnect(mg_connection *nc);
+    virtual void onAccept(mg_connection *nc);
+    virtual void onError(mg_connection *nc, const char *error);
+    virtual void onReceive(mg_connection *nc, long num_bytes);
+    virtual void onSend(mg_connection *nc, long num_bytes);
+    virtual void onPoll(mg_connection *nc);
+    virtual void onClose(mg_connection *nc);
+    virtual void handleEvent(mg_connection *nc, int ev, void *p);
+
+    bool connect(mg_connection *nc);
+//    bool bind(uint16_t port);
+//    bool bind(uint16_t port, const char *cert, const char *private_key);
+//    bool bind(uint16_t port, mg_bind_opts opts);
+
+    void setSecure() {
+      _secure = true;
+    }
+
+    void setSecure(const char *host) {
+      setSecure(mg_str_s(host));
+    }
+    void setSecure(mg_str host) {
+      _secure = true;
+      _host = host;
+    }
+
+    void setCertificate(const char *cert, const char *key) {
+      _secure = true;
+      _cert = mg_str_s(cert);
+      _key = mg_str_s(key);
+    }
+
+    void setRejectUnauthorized(bool reject) {
+      _reject_unauthorized = reject;
+    }
+
+    void clearSecurity() {
+      _secure = false;
+      _reject_unauthorized = true;
+      _host = (const char *) nullptr;
+      _cert = (const char *) nullptr;
+      _key = (const char *) nullptr;
+    }
+
+    void clearConnection() {
+      _nc = nullptr;
+    }
+
+    /**
+     * @brief Gracefully disconnect the socket (drain pending data)
+     */
+    void disconnect() {
+      if(_nc) {
+        _nc->is_draining = 1;
+      }
+    }
+    /**
+     * @brief Forcibly abort the socket connection immediately
+     */
+    void abort() {
+      if(_nc) {
+        _nc->is_closing = 1;
+      }
+    }
+
+  public:
+    MongooseSocket();
+    MongooseSocket(mg_connection *nc);
+    ~MongooseSocket();
+
+    /**
+     * @brief Check if the socket is connected
+     * @return true if connected
+     */
+    virtual bool connected() {
+      return _nc;
+    }
+
+    MongooseSocket *onError(MongooseSocketErrorHandler fnHandler) {
+      _onError = fnHandler;
+      return this;
+    }
+
+    MongooseSocket *onClose(MongooseSocketCloseHandler fnHandler) {
+      _onClose = fnHandler;
+      return this;
+    }
+
+    /**
+     * @brief Get the underlying Mongoose connection object
+     * @return mg_connection*
+     */
+    mg_connection *getConnection() {
+      return _nc;
+    }
+
+    /**
+     * @brief Get the remote network address
+     * @return mg_addr*, or nullptr when there is no connection
+     *
+     * Mongoose clears the connection pointer before onClose() runs, so this
+     * returns nullptr rather than dereferencing it. Use remoteAddress() to
+     * read the address from a close or error handler.
+     */
+    mg_addr *getRemoteAddress() {
+      return _nc ? &_nc->rem : nullptr;
+    }
+
+    /**
+     * @brief Get the local network address
+     * @return mg_addr*, or nullptr when there is no connection
+     */
+    mg_addr *getLocalAddress() {
+      return _nc ? &_nc->loc : nullptr;
+    }
+
+    /**
+     * @brief The address the peer was resolved to, as text
+     * @return the address, or "" when there is no resolved peer
+     *
+     * Mongoose resolves the peer asynchronously and stores the answer on the
+     * connection, so this needs no name lookup of its own -- which matters
+     * because the synchronous resolvers block, and on a single-threaded
+     * application task under a watchdog that is a reboot rather than a delay.
+     *
+     * Recorded as events arrive, so it stays readable from a close or error
+     * handler after Mongoose has finished with the connection. An empty string
+     * means the peer was never resolved, which is how an error handler can tell
+     * a name that does not resolve from a peer that refused the connection.
+     */
+    const char *remoteAddress() {
+      return _remoteAddress;
+    }
+
+    static const char Type = 'S';
+    virtual char getType() {
+      return Type;
+    }
+};
+
+#endif // MongooseSocket_h
+     

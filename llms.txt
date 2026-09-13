@@ -1,0 +1,27 @@
+# AI Agent Instructions for ArduinoMongoose
+
+ArduinoMongoose is an Arduino-style C++ wrapper around the Mongoose networking library. It provides classes for HTTP, MQTT, WebSockets, SNTP, and mDNS for ESP32, ESP8266, and Native environments via PlatformIO.
+
+## Project Structure
+- `src/`: Core library sources (C++ wrapper files starting with `Mongoose*.h`/`.cpp`).
+- `src/mongoose.c` & `src/mongoose.h`: Vendored third-party Mongoose OS library (v6.x compatible). **DO NOT MODIFY** unless explicitly required.
+- `examples/`: Runnable PlatformIO examples. Each directory is a self-contained example. Do not share relative files like `../../common/` across examples.
+- `tests/unit/`: Native unit tests.
+- `docs/`: Human-friendly API documentation and references.
+
+## Building and Testing
+- Build System: PlatformIO.
+- CLI: `pio run -e native` or `pio run -e esp-wrover-kit` inside any example directory or `tests/unit`.
+- Testing: All new code must be accompanied by tests in `tests/unit`. Examples must be compiled to verify API changes.
+
+## Development Rules
+- When writing code, maintain the existing C++ style and preprocessor patterns (e.g. `#ifdef ARDUINO`).
+- The library supports `Native`, `ESP8266`, and `ESP32` platforms. Always check for platform-specific macros when utilizing hardware features.
+- Avoid modifying the vendor Mongoose library (`mongoose.c` / `.h`). Limit changes to the `Mongoose*.cpp`/`.h` files.
+
+## Updating Documentation
+- The project uses Doxygen and moxygen for generating API references and GitHub Pages documentation.
+- When adding new classes or methods to the wrappers, include Doxygen comments (e.g., `/** @brief ... */`).
+- The CI pipeline automatically builds and deploys documentation to GitHub Pages on merges to the `mongoose_7` branch.
+
+For API information, refer to `docs/API_REFERENCE.md`.

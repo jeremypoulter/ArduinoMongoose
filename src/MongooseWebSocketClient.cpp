@@ -3,27 +3,17 @@
 
 #include <string.h>
 
-// Mongoose v6.14 vs v7.x API compatibility
-// MicroOcppMongooseClient uses MO_MG_VERSION_614 flag
-#ifndef MO_MG_VERSION_614
-  // Assume v6.14 API by default (ArduinoMongoose uses v6.18 which is compatible)
-  #define MO_MG_VERSION_614 1
-#endif
-
 // Time helper: get current time in milliseconds
-// On Arduino: use millis()
-// On native: use mg_time() converted to milliseconds
 static inline unsigned long get_millis() {
 #ifdef ARDUINO
   return millis();
 #else
-  return (unsigned long)(mg_time() * 1000.0);
+  return (unsigned long)mg_millis();
 #endif
 }
 
 MongooseWebSocketClient::MongooseWebSocketClient() :
-  _mgr(Mongoose.getMgr()),
-  _nc(nullptr),
+  MongooseSocket(),
   _state(State::DISCONNECTED),
   _url(nullptr),
   _protocol(nullptr),
@@ -68,8 +58,10 @@ bool MongooseWebSocketClient::connect(const char *url, const char *protocol, con
   }
   
   // Disconnect existing connection
-  if (_nc) {
-    disconnect();
+  if (getConnection()) {
+    getConnection()->fn_data = nullptr;
+    MongooseSocket::abort();
+    cleanupConnection();
   }
   
   // Store configuration (copy strings for lifetime management)
@@ -81,6 +73,12 @@ bool MongooseWebSocketClient::connect(const char *url, const char *protocol, con
   
   if (_extraHeaders) free(_extraHeaders);
   _extraHeaders = extraHeaders ? strdup(extraHeaders) : nullptr;
+
+  if (mg_url_is_ssl(_url)) {
+    setSecure(mg_url_host(_url));
+  } else {
+    clearSecurity();
+  }
   
   // Reset reconnection state
   _reconnectAttemptCount = 0;
@@ -88,26 +86,20 @@ bool MongooseWebSocketClient::connect(const char *url, const char *protocol, con
   
   // Initiate connection immediately
   attemptReconnect();
-  
-  return _nc != nullptr;
+
+  return getConnection() != nullptr;
 }
 
 void MongooseWebSocketClient::disconnect()
 {
-  if (_nc) {
+  if (getConnection()) {
+    bool wasConnected = connected();
     _state = State::CLOSING;
-    
-    // Send CLOSE frame
-    #if MO_MG_VERSION_614
-      mg_send_websocket_frame(_nc, WEBSOCKET_OP_CLOSE, nullptr, 0);
-    #else
-      mg_ws_send(_nc, nullptr, 0, WEBSOCKET_OP_CLOSE);
-    #endif
-    
-    // Request a graceful close: send pending data (including CLOSE) then close
-    _nc->flags |= MG_F_SEND_AND_CLOSE;
-    
-    // Keep _nc set until MG_EV_CLOSE arrives
+
+    if (wasConnected) {
+      mg_ws_send(getConnection(), nullptr, 0, WEBSOCKET_OP_CLOSE);
+    }
+    MongooseSocket::disconnect();
   }
 }
 
@@ -116,22 +108,6 @@ void MongooseWebSocketClient::loop()
   // Handle reconnection if disconnected or in error state
   if ((_state == State::DISCONNECTED || _state == State::ERROR_STATE) && _url && _reconnectInterval > 0) {
     attemptReconnect();
-  }
-  
-  // Handle heartbeat (PING)
-  if (_state == State::CONNECTED && _pingInterval > 0) {
-    unsigned long now = get_millis();
-    if (now - _lastPing >= _pingInterval) {
-      sendPing();
-    }
-  }
-  
-  // Handle stale connection detection
-  if (_state == State::CONNECTED && _staleTimeout > 0) {
-    if (isStale()) {
-      // Connection is stale, close and reconnect
-      disconnect();
-    }
   }
 }
 
@@ -142,138 +118,103 @@ bool MongooseWebSocketClient::sendTXT(const char *msg, size_t length)
 
 bool MongooseWebSocketClient::send(int op, const void *data, size_t len)
 {
-  if (!_nc || _state != State::CONNECTED) {
+  if (!connected()) {
     return false;
   }
   
-  #if MO_MG_VERSION_614
-    mg_send_websocket_frame(_nc, op, data, len);
-  #else
-    mg_ws_send(_nc, data, len, op);
-  #endif
-  
+  mg_ws_send(getConnection(), data, len, op);
   return true;
 }
 
-void MongooseWebSocketClient::eventHandler(struct mg_connection *nc, int ev, void *ev_data, void *user_data)
+void MongooseWebSocketClient::onConnect(mg_connection *nc)
 {
-  MongooseWebSocketClient *client = (MongooseWebSocketClient *)user_data;
-  if (client) {
-    client->handleEvent(nc, ev, ev_data);
+  _state = State::CONNECTING;
+  MongooseSocket::onConnect(nc);
+}
+
+void MongooseWebSocketClient::onPoll(mg_connection *nc)
+{
+  (void) nc;
+
+  if (_state == State::CONNECTED && _pingInterval > 0) {
+    unsigned long now = get_millis();
+    if (now - _lastPing >= _pingInterval) {
+      sendPing();
+    }
   }
+
+  if (_state == State::CONNECTED && _staleTimeout > 0 && isStale()) {
+    disconnect();
+  }
+}
+
+void MongooseWebSocketClient::onError(mg_connection *nc, const char *error)
+{
+  _state = State::ERROR_STATE;
+  MongooseSocket::onError(nc, error);
+  nc->fn_data = nullptr;
+  cleanupConnection();
 }
 
 void MongooseWebSocketClient::handleEvent(struct mg_connection *nc, int ev, void *ev_data)
 {
-  // Only process events for the currently-active connection.
-  // This avoids stale connections (e.g. from a previous reconnect attempt)
-  // from overwriting the state of the new connection.
-  if (_nc && nc != _nc) {
-    return;
-  }
-  
   switch (ev) {
-    case MG_EV_CONNECT: {
-      // TCP connection established (or failed)
-      int status = *(int *)ev_data;
-      if (status != 0) {
-        // Connection failed
-        _state = State::ERROR_STATE;
-        cleanupConnection();
-      } else {
-        _state = State::CONNECTING;
+    case MG_EV_WS_OPEN: {
+      _state = State::CONNECTED;
+      _lastConnected = get_millis();
+      _lastRecv = _lastConnected;
+      _lastPing = _lastConnected;
+      _reconnectAttemptCount = 0;
+      
+      if (_onOpen) {
+        _onOpen(this);
       }
       break;
     }
-    
-    case MG_EV_WEBSOCKET_HANDSHAKE_DONE: {
-      // WebSocket upgrade successful (HTTP 101)
-      struct http_message *hm = (struct http_message *)ev_data;
-      
-      if (hm && hm->resp_code == 101) {
-        _state = State::CONNECTED;
-        _lastConnected = get_millis();
-        _lastRecv = _lastConnected;
-        _lastPing = _lastConnected;
-        _reconnectAttemptCount = 0;  // Reset backoff on success
-        
-        if (_onOpen) {
-          _onOpen(this);
-        }
-      } else {
-        // Handshake failed (non-101 response)
-        _state = State::ERROR_STATE;
-        cleanupConnection();
-      }
-      break;
-    }
-    
-    case MG_EV_WEBSOCKET_FRAME: {
-      // Incoming WebSocket frame (auto-defragmented by mongoose)
-      struct websocket_message *wm = (struct websocket_message *)ev_data;
-      
+
+    case MG_EV_WS_MSG: {
+      struct mg_ws_message *wm = (struct mg_ws_message *)ev_data;
       _lastRecv = get_millis();
-      
       if (_onMessage && wm) {
-        _onMessage(wm->flags, (const uint8_t *)wm->data, wm->size);
+        _onMessage(wm->flags, (const uint8_t *)wm->data.buf, wm->data.len);
       }
       break;
     }
-    
-    case MG_EV_WEBSOCKET_CONTROL_FRAME: {
-      // Control frame (PING, PONG, CLOSE)
-      struct websocket_message *wm = (struct websocket_message *)ev_data;
-      
+
+    case MG_EV_WS_CTL: {
+      struct mg_ws_message *wm = (struct mg_ws_message *)ev_data;
       _lastRecv = get_millis();
-      
       if (wm) {
         uint8_t opcode = wm->flags & 0x0F;
-        
+
         if (opcode == WEBSOCKET_OP_PING) {
-          // Auto-respond with PONG (mongoose may handle this automatically)
-          send(WEBSOCKET_OP_PONG, wm->data, wm->size);
+          mg_ws_send(getConnection(), wm->data.buf, wm->data.len, WEBSOCKET_OP_PONG);
         } else if (opcode == WEBSOCKET_OP_CLOSE) {
-          // Peer initiated close
           _state = State::CLOSING;
         }
       }
       break;
     }
-    
-    case MG_EV_CLOSE: {
-      // Connection closed (clean or error).
-      //
-      // NOTE: We currently do NOT propagate the actual WebSocket close code
-      // or reason from the CLOSE control frame or underlying transport.
-      // Instead, we always report a generic "normal closure" (1000,
-      // "Connection closed") to the onClose callback. Callers MUST NOT rely
-      // on these values to distinguish between normal, error, or
-      // peer-initiated disconnects.
-      int code = 1000;  // Generic "normal" closure code, not protocol-accurate
-      const char *reason = "Connection closed";
-      
-      if (_onClose) {
-        _onClose(code, reason);
-      }
-      
-      cleanupConnection();
-      break;
-    }
-    
+
     default:
       break;
   }
 }
 
+void MongooseWebSocketClient::onClose(mg_connection *nc)
+{
+  if (_onClose) {
+    _onClose(1000, "Connection closed");
+  }
+
+  cleanupConnection();
+  MongooseSocket::onClose(nc);
+}
+
 void MongooseWebSocketClient::cleanupConnection()
 {
-  _nc = nullptr;
-  
-  if (_state != State::CLOSING) {
-    _state = State::DISCONNECTED;
-  } else {
-    _state = State::DISCONNECTED;
-  }
+  clearConnection();
+  _state = State::DISCONNECTED;
 }
 
 void MongooseWebSocketClient::attemptReconnect()
@@ -287,7 +228,7 @@ void MongooseWebSocketClient::attemptReconnect()
   
   // Compute exponential backoff safely without undefined shifts or overflow,
   // respecting the 60s cap.
-  unsigned long baseInterval = _reconnectInterval ? _reconnectInterval : 1000UL;  // Default to 1s if not set
+  unsigned long baseInterval = _reconnectInterval ? _reconnectInterval : 1000UL;
   unsigned long maxBackoff   = 60000UL;
   unsigned long maxFactor    = maxBackoff / baseInterval;
   if (maxFactor == 0) {
@@ -299,7 +240,7 @@ void MongooseWebSocketClient::attemptReconnect()
   }
   unsigned long backoffDelay = baseInterval * factor;
   if (backoffDelay > maxBackoff) {
-    backoffDelay = maxBackoff;  // Cap at 60 seconds
+    backoffDelay = maxBackoff;
   }
   
   if (_lastReconnectAttempt > 0 && (now - _lastReconnectAttempt) < backoffDelay) {
@@ -309,34 +250,32 @@ void MongooseWebSocketClient::attemptReconnect()
   _lastReconnectAttempt = now;
   _reconnectAttemptCount++;
   
-  // Prepare connection options
-  struct mg_connect_opts opts;
-  Mongoose.getDefaultOpts(&opts);
+  mg_connection *nc = nullptr;
+  if (_protocol && _extraHeaders) {
+    nc = mg_ws_connect(Mongoose.getMgr(), _url, MongooseSocket::eventHandler, this,
+                       "Sec-WebSocket-Protocol: %s\r\n%s\r\n",
+                       _protocol, _extraHeaders);
+  } else if (_protocol) {
+    nc = mg_ws_connect(Mongoose.getMgr(), _url, MongooseSocket::eventHandler, this,
+                       "Sec-WebSocket-Protocol: %s\r\n", _protocol);
+  } else if (_extraHeaders) {
+    nc = mg_ws_connect(Mongoose.getMgr(), _url, MongooseSocket::eventHandler, this,
+                       "%s\r\n", _extraHeaders);
+  } else {
+    nc = mg_ws_connect(Mongoose.getMgr(), _url, MongooseSocket::eventHandler, this, NULL);
+  }
   
-  // Mongoose v6.14 API: mg_connect_ws_opt (only supported version)
-  #if MO_MG_VERSION_614
-    _nc = mg_connect_ws_opt(_mgr, eventHandler, this, opts, _url, _protocol, _extraHeaders);
-  #else
-    #error "Only Mongoose v6.14+ API is supported. Please define MO_MG_VERSION_614=1"
-  #endif
-  
-  if (_nc) {
+  if (MongooseSocket::connect(nc)) {
     _state = State::CONNECTING;
   } else {
-    // Synchronous connect failure: go back to DISCONNECTED so loop() can retry with backoff
     _state = State::DISCONNECTED;
   }
 }
 
 void MongooseWebSocketClient::sendPing()
 {
-  if (_state == State::CONNECTED && _nc) {
-    #if MO_MG_VERSION_614
-      mg_send_websocket_frame(_nc, WEBSOCKET_OP_PING, nullptr, 0);
-    #else
-      mg_ws_send(_nc, nullptr, 0, WEBSOCKET_OP_PING);
-    #endif
-    
+  if (connected()) {
+    mg_ws_send(getConnection(), nullptr, 0, WEBSOCKET_OP_PING);
     _lastPing = get_millis();
   }
 }
@@ -344,7 +283,7 @@ void MongooseWebSocketClient::sendPing()
 bool MongooseWebSocketClient::isStale()
 {
   if (_staleTimeout == 0) {
-    return false;  // Stale detection disabled
+    return false;
   }
   
   unsigned long now = get_millis();

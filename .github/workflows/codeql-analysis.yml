@@ -2,10 +2,10 @@ name: "CodeQL"
 
 on:
   push:
-    branches: [master, ]
+    branches: [master, mongoose_7]
   pull_request:
     # The branches below must be a subset of the branches above
-    branches: [master]
+    branches: [master, mongoose_7]
   schedule:
     - cron: '0 5 * * 1'
 
@@ -15,16 +15,19 @@ jobs:
       fail-fast: false
       matrix:
         include:
-        - example: simplest_web_server_esp
-          board: espwroverkit
-          platform: espressif32
-        - example: simplest_web_server_native
+        - example: simple_http_client
           board: native
           platform: native
-        - example: simple_http_client_native
+        - example: simple_http_server
           board: native
           platform: native
-        - example: simple_websocket_client_native
+        - example: simple_mqtt_client
+          board: native
+          platform: native
+        - example: websocket_chat
+          board: native
+          platform: native
+        - example: sntp_client
           board: native
           platform: native
         #- example: simple_http_server

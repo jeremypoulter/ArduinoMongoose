@@ -39,3 +39,4 @@ Visual\ Micro
 .vscode/ipch
 examples/*/lib/*
 _codeql_detected_source_root
+docs_output
