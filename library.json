@@ -24,6 +24,13 @@
       ]
     },
     {
+      "name": "native_upload_http_server",
+      "base": "examples/native_upload_http_server",
+      "files": [
+        "src/native_upload_http_server.cpp"
+      ]
+    },
+    {
       "name": "simple_http_client",
       "base": "examples/simple_http_client",
       "files": [
@@ -52,17 +59,17 @@
       ]
     },
     {
-      "name": "simplest_web_server_esp",
-      "base": "examples/simplest_web_server_esp",
+      "name": "simple_websocket_client",
+      "base": "examples/simple_websocket_client",
       "files": [
-        "src/simplest_web_server.cpp"
+        "src/simple_websocket_client.cpp"
       ]
     },
     {
-      "name": "simplest_web_server_native",
-      "base": "examples/simplest_web_server_native",
+      "name": "simple_websocket_client_native",
+      "base": "examples/simple_websocket_client_native",
       "files": [
-        "src/simplest_web_server.c"
+        "src/simple_websocket_client.cpp"
       ]
     },
     {
@@ -80,7 +87,7 @@
       ]
     }
   ],
-  "version": "0.0.26",
+  "version": "1.0.0",
   "frameworks": "*",
   "platforms": "espressif32,espressif8266,native,windows_x86",
   "dependencies": [
