@@ -16,6 +16,7 @@ void runSocketAddressTests();
 
 static int runAllTests() {
   UNITY_BEGIN();
+#ifndef ARDUINO_MONGOOSE_TEST_MDNS_ONLY
   runMongooseStringTests();
   runHttpMethodTests();
   runHttpServerTests();
@@ -24,8 +25,9 @@ static int runAllTests() {
   runWebSocketTests();
   runMqttClientTests();
   runSntpClientTests();
-  runMdnsTests();
   runSocketAddressTests();
+#endif
+  runMdnsTests();
   return UNITY_END();
 }
 

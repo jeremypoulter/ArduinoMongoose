@@ -1578,24 +1578,24 @@ static size_t mg_dns_parse_name_depth(const uint8_t *s, size_t len, size_t ofs,
                                       int depth) {
   size_t i = 0;
   if (tolen > 0 && depth == 0) to[0] = '\0';
-  if (depth > 5) return 0;
+  if (depth > 16) return 0;
   // MG_INFO(("ofs %lx %x %x", (unsigned long) ofs, s[ofs], s[ofs + 1]));
-  while (ofs + i + 1 < len) {
+  while (ofs < len && i < len - ofs) {
     size_t n = s[ofs + i];
     if (n == 0) {
-      i++;
-      break;
+      if (to && j < tolen) to[j] = '\0';
+      return i + 1;
     }
-    if (n & 0xc0) {
+    if ((n & 0xc0) == 0xc0) {
+      if (i + 1 >= len - ofs) return 0;
       size_t ptr = (((n & 0x3f) << 8) | s[ofs + i + 1]);  // 12 is hdr len
       // MG_INFO(("PTR %lx", (unsigned long) ptr));
-      if (ptr + 1 < len && (s[ptr] & 0xc0) == 0 &&
+      if (ptr >= ofs + i ||
           mg_dns_parse_name_depth(s, len, ptr, to, tolen, j, depth + 1) == 0)
         return 0;
-      i += 2;
-      break;
+      return i + 2;
     }
-    if (ofs + i + n + 1 >= len) return 0;
+    if (n > 63 || n + 1 >= len - ofs - i || j + n + (j ? 1 : 0) > 253) return 0;
     if (j > 0) {
       if (j < tolen) to[j] = '.';
       j++;
@@ -1607,7 +1607,7 @@ static size_t mg_dns_parse_name_depth(const uint8_t *s, size_t len, size_t ofs,
     // MG_INFO(("--> [%s]", to));
   }
   if (tolen > 0) to[tolen - 1] = '\0';  // Make sure it is nul-term
-  return i;
+  return 0;  // Missing terminating root label
 }
 
 static size_t mg_dns_parse_name(const uint8_t *s, size_t n, size_t ofs,
@@ -1616,12 +1616,14 @@ static size_t mg_dns_parse_name(const uint8_t *s, size_t n, size_t ofs,
 }
 
 size_t mg_dns_parse_rr(const uint8_t *buf, size_t len, size_t ofs,
-                       bool is_question, struct mg_dns_rr *rr) {
-  const uint8_t *s = buf + ofs, *e = &buf[len];
+                        bool is_question, struct mg_dns_rr *rr) {
+  const uint8_t *s, *e;
 
   memset(rr, 0, sizeof(*rr));
   if (len < sizeof(struct mg_dns_header)) return 0;  // Too small
-  if (len > 512) return 0;  //  Too large, we don't expect that
+  if (ofs >= len) return 0;
+  s = buf + ofs, e = buf + len;
+  // mDNS commonly carries several DNS-SD records in a single datagram.
   if (s >= e) return 0;     //  Overflow
 
   if ((rr->nlen = (uint16_t) mg_dns_parse_name(buf, len, ofs, NULL, 0)) == 0)
@@ -1647,6 +1649,7 @@ bool mg_dns_parse(const uint8_t *buf, size_t len, struct mg_dns_message *dm) {
   memset(dm, 0, sizeof(*dm));
 
   if (len < sizeof(*h)) return 0;                // Too small, headers dont fit
+  if (len > 512) return 0;  // Ordinary DNS limit; mDNS uses mg_dns_parse_rr directly
   if (mg_ntohs(h->num_questions) > 1) return 0;  // Sanity
   num_answers = mg_ntohs(h->num_answers);
   if (num_answers > 10) {
@@ -1818,14 +1821,26 @@ static void sendnsreq(struct mg_connection *c, struct mg_str *name, int ms,
 
 void mg_resolve(struct mg_connection *c, const char *url) {
   struct mg_str host = mg_url_host(url);
+  size_t i;
+  if (host.len && host.buf[host.len - 1] == '.') host.len--;
   c->rem.port = mg_htons(mg_url_port(url));
+  for (i = 0; i < sizeof(c->mgr->mdns_cache) / sizeof(c->mgr->mdns_cache[0]); i++) {
+    if (c->mgr->mdns_cache[i].expires > mg_millis() &&
+        mg_strcasecmp(host, mg_str(c->mgr->mdns_cache[i].name)) == 0) {
+      uint16_t port = c->rem.port;
+      c->rem = c->mgr->mdns_cache[i].addr;
+      c->rem.port = port;
+      mg_connect_resolved(c);
+      return;
+    }
+  }
   if (mg_aton(host, &c->rem)) {
     // host is an IP address, do not fire name resolution
     mg_connect_resolved(c);
   } else if (host.len > 6 &&
-             strncmp(".local", &host.buf[host.len - 6], 6) == 0) {
+             mg_strcasecmp(mg_str_n(host.buf + host.len - 6, 6), mg_str(".local")) == 0) {
     // this is a request for a .local name (mDNS)
-    sendmdnsreq(c, &host, 500, c->mgr->mdns, c->mgr->use_dns6);  // 500ms tmout
+    sendmdnsreq(c, &host, c->mgr->dnstimeout, c->mgr->mdns, c->mgr->use_dns6);
   } else {
     // host is not an IP nor a .local, send DNS resolution request
     struct mg_dns *dns = c->mgr->use_dns6 ? &c->mgr->dns6 : &c->mgr->dns4;
@@ -1867,7 +1882,7 @@ static uint8_t *build_a_record(struct mg_connection *c, uint8_t *p,
     memset(&loc, 0, sizeof(loc));
     to.is_ip6 = false;
     to.port = mg_htons(5353);
-    to.addr.ip4 = MG_IPV4(224, 0, 0, 51);
+    to.addr.ip4 = MG_IPV4(224, 0, 0, 251);
     mg_getlocaddr(c, &to, &loc);
     memcpy(p, &loc.addr.ip4, 4), p += 4;
 #endif
@@ -1947,16 +1962,24 @@ static uint8_t *build_txt_record(uint8_t *p, struct mg_dnssd_record *r) {
 
 // RFC-6762 16: case-insensitivity --> RFC-1034, 1035
 
-static void handle_mdns_query(struct mg_connection *c) {
+static void mdns_multicast_destination(struct mg_connection *c) {
+  // A wildcard UDP socket's loc is refreshed by sendto(). It is not the
+  // multicast destination, and must never be reused as one after the send.
+  memset(&c->rem, 0, sizeof(c->rem));
+  c->rem.addr.ip4 = MG_IPV4(224, 0, 0, 251);
+  c->rem.port = mg_htons(5353);
+}
+
+static void handle_mdns_query(struct mg_connection *c, size_t question_offset) {
   struct mg_dns_header *qh = (struct mg_dns_header *) c->recv.buf;
   struct mg_dns_rr rr;
   size_t n;
   // Parse first question, offset 12 is header size
-  n = mg_dns_parse_rr(c->recv.buf, c->recv.len, 12, true, &rr);
+  n = mg_dns_parse_rr(c->recv.buf, c->recv.len, question_offset, true, &rr);
   MG_VERBOSE(("mDNS request parsed, result=%d", (int) n));
   if (n > 0) {
     // RFC-6762 Appendix C, RFC2181 11: m(n + 1-63), max 255 + 0x0
-    uint8_t buf[sizeof(struct mg_dns_header) + 256 + sizeof(mdns_answer) + 4];
+    uint8_t buf[1024];
     struct mg_dns_header *h = (struct mg_dns_header *) buf;
     uint8_t *p = &buf[sizeof(*h)];
     char name[256];
@@ -1968,13 +1991,15 @@ static void handle_mdns_query(struct mg_connection *c) {
     memset(&req, 0, sizeof(req));
     req.is_unicast = (rr.aclass & MG_BIT(15)) != 0;  // QU
     rr.aclass &= (uint16_t) ~MG_BIT(15);  // remove "QU" (unicast response)
-    qh->num_questions = mg_htons(1);      // parser sanity
-    mg_dns_parse_name(c->recv.buf, c->recv.len, 12, name, sizeof(name));
+    mg_dns_parse_name(c->recv.buf, c->recv.len, question_offset, name, sizeof(name));
     name_len = (uint8_t) strlen(name);  // verify it ends in .local
-    if (name_len <= 6 || strcmp(".local", &name[name_len - 6]) != 0 ||
+    if (name_len <= 6 || mg_casecmp(".local", &name[name_len - 6]) != 0 ||
         (rr.aclass != 1 && rr.aclass != 0xff))
       return;
     name[name_len -= 6] = '\0';  // remove .local
+    if (rr.atype == 255) {  // ANY: answer hostname or service-instance queries
+      rr.atype = mg_strcasecmp(defname, mg_str(name)) == 0 ? MG_DNS_RTYPE_A : MG_DNS_RTYPE_SRV;
+    }
     MG_VERBOSE(("RR %u %u %s", (unsigned int) rr.atype,
                 (unsigned int) rr.aclass, name));
     if (rr.atype == MG_DNS_RTYPE_A) {
@@ -1998,7 +2023,8 @@ static void handle_mdns_query(struct mg_connection *c) {
         // if possible, check it starts with our name, users will check it ends
         // in a service name they handle
         if (c->fn_data != NULL) {
-          if (mg_strcasecmp(defname, mg_str_n(name, defname.len)) != 0 ||
+          if (name_len <= defname.len ||
+              mg_strcasecmp(defname, mg_str_n(name, defname.len)) != 0 ||
               name[defname.len] != '.')
             return;
           req.reqname =
@@ -2014,6 +2040,7 @@ static void handle_mdns_query(struct mg_connection *c) {
     req.rr = &rr;
     mg_call(c, MG_EV_MDNS_REQ, &req);
     if (!req.is_resp) return;
+    if (!req.is_listing && rr.atype != MG_DNS_RTYPE_A && req.r == NULL) return;
     respname = req.respname.buf != NULL ? &req.respname : &defname;
 
     memset(h, 0, sizeof(*h));                   // clear header
@@ -2021,11 +2048,22 @@ static void handle_mdns_query(struct mg_connection *c) {
     h->num_answers = mg_htons(1);  // RFC-6762 6: 0 questions, 1 Answer
     h->flags = mg_htons(0x8400);   // Authoritative response
     if (req.is_listing) {
-      // TODO(): RFC-6762 6: each responder SHOULD delay its response by a
-      // random amount of time selected with uniform random distribution in the
-      // range 20-120 ms.
-      // TODO():
-      return;
+      size_t i, count = 0;
+      const uint8_t owner[] = "\x09_services\x07_dns-sd\x04_udp\x05local";
+      for (i = 0; i < req.listing_count; i++) {
+        struct mg_dnssd_record *r = &req.listing[i];
+        size_t len = r->srvcproto.len + 8;
+        if ((size_t)(p - buf) + sizeof(owner) + 10 + len > sizeof(buf)) break;
+        memcpy(p, owner, sizeof(owner)), p += sizeof(owner);
+        memcpy(p, mdns_answer, sizeof(mdns_answer));
+        p[1] = MG_DNS_RTYPE_PTR;
+        p[8] = (uint8_t)(len >> 8), p[9] = (uint8_t)len;
+        p += sizeof(mdns_answer);
+        p = build_srv_name(p, r);
+        count++;
+      }
+      if (!count) return;
+      h->num_answers = mg_htons((uint16_t)count);
     } else if (rr.atype == MG_DNS_RTYPE_PTR) {  // serve PTR + SRV + TXT + A
       // TODO(): RFC-6762 6: each responder SHOULD delay its response by a
       // random amount of time selected with uniform random distribution in the
@@ -2060,16 +2098,22 @@ static void handle_mdns_query(struct mg_connection *c) {
       if ((sizeof(*h) + req.r->srvcproto.len + 8 + req.r->txt.len + 10) >
           sizeof(buf))  // srv name + TXT
         return;
+      if (!respname->len || sizeof(*h) + respname->len + 1 +
+          req.r->srvcproto.len + 8 + req.r->txt.len + 10 > sizeof(buf)) return;
+      *p++ = (uint8_t) respname->len;
+      memcpy(p, respname->buf, respname->len), p += respname->len;
       p = build_srv_name(p, req.r);
       p = build_txt_record(p, req.r);
     } else if (rr.atype == MG_DNS_RTYPE_SRV) {  // serve SRV + A
       uint8_t *o, *aux;
       uint16_t offset;
       if (respname->buf == NULL || respname->len == 0) return;
-      if ((sizeof(*h) + req.r->srvcproto.len + 8 + respname->len + 19 + 2 +
+      if ((sizeof(*h) + respname->len + 1 + req.r->srvcproto.len + 8 + respname->len + 19 + 2 +
            14) > sizeof(buf))  // srv name + SRV + 2 + A
         return;
       h->num_other_prs = mg_htons(1);  // 1 additional record
+      *p++ = (uint8_t) respname->len;
+      memcpy(p, respname->buf, respname->len), p += respname->len;
       p = build_srv_name(p, req.r);
       o = p - 7;  // point to '.local' label (\x05local\x00)
       aux = p;
@@ -2087,7 +2131,7 @@ static void handle_mdns_query(struct mg_connection *c) {
       p = build_name(respname, p);
       p = build_a_record(c, p, req.addr);
     }
-    if (!req.is_unicast) mg_multicast_restore(c, (uint8_t *) &c->loc);
+    if (!req.is_unicast) mdns_multicast_destination(c);
     mg_send(c, buf, (size_t) (p - buf));  // And send it!
     MG_DEBUG(("%M > %M", mg_print_ip_port, &c->loc, mg_print_ip_port, &c->rem));
     MG_DEBUG(("mDNS %s response sent", req.is_unicast ? "unicast" : "mcast"));
@@ -2097,37 +2141,51 @@ static void handle_mdns_query(struct mg_connection *c) {
 static void handle_mdns_response(struct mg_connection *c) {
   struct mg_dns_header *rh = (struct mg_dns_header *) c->recv.buf;
   struct mg_dns_rr rr;
-  size_t n;
-  // Parse first response, offset 12 is header size
-  n = mg_dns_parse_rr(c->recv.buf, c->recv.len, 12, false, &rr);
-  MG_VERBOSE(("mDNS response parsed, result=%d", (int) n));
-  if (n > 0) {
-    // RFC-6762 Appendix C, RFC2181 11: m(n + 1-63), max 255 + 0x0
-    char name[256];
-    uint8_t name_len;
+  size_t n, ofs = sizeof(*rh), i;
+  size_t count = mg_ntohs(rh->num_answers) + mg_ntohs(rh->num_authority_prs) +
+                 mg_ntohs(rh->num_other_prs);
+  for (i = 0; i < mg_ntohs(rh->num_questions); i++) {
+    n = mg_dns_parse_rr(c->recv.buf, c->recv.len, ofs, true, &rr);
+    if (!n) return;
+    ofs += n;
+  }
+  for (i = 0; i < count; i++) {
+    char name[256], target[256];
     struct mg_mdns_resp resp;
+    const uint8_t *data, *ttl;
+    n = mg_dns_parse_rr(c->recv.buf, c->recv.len, ofs, false, &rr);
+    if (!n) return;
     memset(&resp, 0, sizeof(resp));
-    if (rh->num_answers > mg_htons(1)) MG_DEBUG(("ignoring > 1 answers"));
-    mg_dns_parse_name(c->recv.buf, c->recv.len, 12, name, sizeof(name));
-    name_len = (uint8_t) strlen(name);
-    MG_VERBOSE(("RR %u %u %s", (unsigned int) rr.atype,
-                (unsigned int) rr.aclass, name));
-    if (rr.alen == 4 && rr.atype == MG_DNS_RTYPE_A &&
-        (rr.aclass & 0x7FFF) == 1) {
-      resp.addr.is_ip6 = false;
-      memcpy(resp.addr.addr.ip, (char *) (rh + 1) + n - 4, 4);
-      MG_DEBUG(("A response from %.*s = %M", name_len, name, mg_print_ip,
-                &resp.addr));
-      //    } else if (rr.alen == 16 && rr.atype == MG_DNS_RTYPE_AAAA &&
-      //    (rr.aclass & 0x7FFF) == 1) {
-      //      resp.addr.is_ip6 = true;
-      //      memcpy(resp.addr.addr.ip, (char *)(rh + 1) + n - 16], 16);
-      //      MG_DEBUG(("AAAA response from %.*s = %M", name_len, name,
-      //      mg_print_ip, &resp.addr));
+    if (!mg_dns_parse_name(c->recv.buf, c->recv.len, ofs, name, sizeof(name))) return;
+    ttl = c->recv.buf + ofs + rr.nlen + 4;
+    resp.ttl = ((uint32_t) ttl[0] << 24) | ((uint32_t) ttl[1] << 16) |
+               ((uint32_t) ttl[2] << 8) | ttl[3];
+    ofs += n;
+    data = c->recv.buf + ofs - rr.alen;
+    if ((rr.aclass & 0x7fff) != 1) continue;
+    if (rr.alen == 4 && rr.atype == MG_DNS_RTYPE_A) {
+      memcpy(resp.addr.addr.ip, data, 4);
+    } else if (rr.alen == 16 && rr.atype == MG_DNS_RTYPE_AAAA) {
+      resp.addr.is_ip6 = true;
+      memcpy(resp.addr.addr.ip, data, 16);
+    } else if (rr.atype == MG_DNS_RTYPE_PTR || rr.atype == MG_DNS_RTYPE_SRV) {
+      size_t skip = rr.atype == MG_DNS_RTYPE_SRV ? 6 : 0;
+      size_t used;
+      if (rr.alen <= skip) continue;
+      used = mg_dns_parse_name(c->recv.buf, c->recv.len,
+                               ofs - rr.alen + skip, target, sizeof(target));
+      if (!used || used > rr.alen - skip) continue;
+      resp.target = mg_str(target);
+      if (skip) resp.port = (uint16_t) ((data[4] << 8) | data[5]);
+    } else if (rr.atype == MG_DNS_RTYPE_TXT) {
+      size_t pos = 0;
+      while (pos < rr.alen) pos += 1 + data[pos];
+      if (pos != rr.alen) continue;
+      resp.txt = mg_str_n((const char *) data, rr.alen);
     } else {
-      return;
+      continue;
     }
-    resp.name = mg_str_n(name, name_len);
+    resp.name = mg_str(name);
     resp.rr = &rr;
     mg_call(c, MG_EV_MDNS_RESP, &resp);
   }
@@ -2138,7 +2196,16 @@ static void handle_mdns_record(struct mg_connection *c) {
   if (c->recv.len <= 12) return;
   if ((h->flags & mg_htons(0xF800)) == 0) {
     // flags -> !resp, opcode=0 => query; ignore other opcodes
-    handle_mdns_query(c);
+    size_t i, ofs = sizeof(*h);
+    struct mg_addr sender = c->rem;
+    for (i = 0; i < mg_ntohs(h->num_questions); i++) {
+      struct mg_dns_rr rr;
+      size_t n = mg_dns_parse_rr(c->recv.buf, c->recv.len, ofs, true, &rr);
+      if (!n) break;
+      c->rem = sender;
+      handle_mdns_query(c, ofs);
+      ofs += n;
+    }
   } else if ((h->flags & mg_htons(0xF800)) == mg_htons(0x8000)) {
     // flags -> resp, opcode=0 => response; ignore other opcodes
     handle_mdns_response(c);
@@ -2146,38 +2213,63 @@ static void handle_mdns_record(struct mg_connection *c) {
 }
 
 static void mdns_cb(struct mg_connection *c, int ev, void *ev_data) {
-  struct mdns_data *d, *tmp;
+  struct mdns_data *d;
   struct mdns_data **head = (struct mdns_data **) &c->mgr->active_mdns_requests;
   // mDNS resolver
   if (ev == MG_EV_POLL) {
     uint64_t now = *(uint64_t *) ev_data;
-    for (d = *head; d != NULL; d = tmp) {
-      tmp = d->next;
-      // MG_DEBUG(("%lu %lu mdns poll", d->expire, now));
-      if (now > d->expire) mg_error(d->c, "mDNS timeout");  // will remove entry
+    for (;;) {
+      struct mg_connection *client;
+      for (d = *head; d && now <= d->expire; d = d->next) {}
+      if (!d) break;
+      client = d->c;
+      mdns_free(head, d);
+      mg_error(client, "mDNS timeout");
     }
   } else if (ev == MG_EV_CLOSE) {
-    for (d = *head; d != NULL; d = tmp) {
-      tmp = d->next;
-      mg_error(d->c, "mDNS listener error");  // this will remove entry
+    if (c->mgr->mdns != c) return;
+    c->mgr->mdns = NULL;
+    memset(c->mgr->mdns_cache, 0, sizeof(c->mgr->mdns_cache));
+    while ((d = *head) != NULL) {
+      struct mg_connection *client = d->c;
+      mdns_free(head, d);
+      mg_error(client, "mDNS listener error");
     }
   } else if (ev == MG_EV_MDNS_RESP) {
     struct mg_mdns_resp *resp = (struct mg_mdns_resp *) ev_data;
     if (resp->rr->atype == MG_DNS_RTYPE_A) {
-      for (d = *head; d != NULL; d = tmp) {
-        tmp = d->next;
-        if (mg_strcasecmp(d->name, resp->name) != 0) continue;
-        if (d->c->is_resolving) {
-          resp->addr.port = d->c->rem.port;  // Save port
-          d->c->rem = resp->addr;            // Copy resolved address
-          MG_DEBUG(("%lu %.*s is %M", d->c->id, resp->name.len, resp->name.buf,
-                    mg_print_ip, &d->c->rem));
-          mg_connect_resolved(d->c);
-        } else {
-          // this should not happen, unless above does not clear c->is_resolving
-          MG_ERROR(("%lu already resolved", d->c->id));
+      size_t i, slot = 0;
+      if (resp->name.len > 6 && resp->name.len < sizeof(c->mgr->mdns_cache[0].name) &&
+          mg_strcasecmp(mg_str_n(resp->name.buf + resp->name.len - 6, 6), mg_str(".local")) == 0) {
+        for (i = 0; i < sizeof(c->mgr->mdns_cache) / sizeof(c->mgr->mdns_cache[0]); i++) {
+          if (mg_strcasecmp(resp->name, mg_str(c->mgr->mdns_cache[i].name)) == 0) {
+            slot = i;
+            break;
+          }
+          if (c->mgr->mdns_cache[i].expires < c->mgr->mdns_cache[slot].expires) slot = i;
         }
+        // A goodbye for an unknown name must not evict an unrelated entry.
+        if (resp->ttl || i < sizeof(c->mgr->mdns_cache) / sizeof(c->mgr->mdns_cache[0])) {
+          memcpy(c->mgr->mdns_cache[slot].name, resp->name.buf, resp->name.len);
+          c->mgr->mdns_cache[slot].name[resp->name.len] = 0;
+          c->mgr->mdns_cache[slot].addr = resp->addr;
+          c->mgr->mdns_cache[slot].expires = mg_millis() + (uint64_t) resp->ttl * 1000;
+        }
+      }
+      if (!resp->ttl) return;
+      for (;;) {
+        struct mg_connection *client;
+        for (d = *head; d && mg_strcasecmp(d->name, resp->name); d = d->next) {}
+        if (!d) break;
+        client = d->c;
         mdns_free(head, d);
+        if (client->is_resolving && !client->is_closing) {
+          uint16_t port = client->rem.port;
+          client->rem = resp->addr;
+          client->rem.port = port;
+          // Detach before callbacks, which may cancel this or another lookup.
+          mg_connect_resolved(client);
+        }
       }
     }
   } else if (ev == MG_EV_READ) {
@@ -2191,10 +2283,12 @@ static void mdns_cb(struct mg_connection *c, int ev, void *ev_data) {
 
 void mg_multicast_add(struct mg_connection *c, char *ip);
 struct mg_connection *mg_mdns_listen(struct mg_mgr *mgr, mg_event_handler_t fn,
-                                     void *fn_data) {
+                                      void *fn_data) {
+  if (mgr->mdns != NULL) return NULL;  // One owner for responder and resolver
   struct mg_connection *c =
-      mg_listen(mgr, "udp://224.0.0.251:5353", fn, fn_data);
+      mg_listen(mgr, "udp://0.0.0.0:5353", fn, fn_data);
   if (c == NULL) return NULL;
+  // Bind wildcard to receive QU replies as well as multicast.
   c->mgr->mdns = c;  // Add mDNS entry to enable resolver to use it
   c->pfn = mdns_cb, c->pfn_data = fn_data;
   mg_multicast_add(c, (char *) "224.0.0.251");
@@ -2202,15 +2296,33 @@ struct mg_connection *mg_mdns_listen(struct mg_mgr *mgr, mg_event_handler_t fn,
 }
 
 static bool mdns_query(struct mg_connection *c, struct mg_str *name,
-                       unsigned int rtype) {
-  mg_multicast_restore(c, (uint8_t *) &c->loc);
-  (void) rtype;
-  return mg_dns_send(c, name, 0, false);
+                        unsigned int rtype) {
+  uint8_t buf[sizeof(struct mg_dns_header) + 256 + 4] = {0};
+  struct mg_dns_header *h = (struct mg_dns_header *) buf;
+  size_t i = 0, pos = sizeof(*h);
+  if (!c || c->is_closing || !name->len || name->len > 253 || rtype > 65535) return false;
+  h->num_questions = mg_htons(1);
+  while (i < name->len) {
+    size_t start = i;
+    while (i < name->len && name->buf[i] != '.') i++;
+    if (i == start || i - start > 63) return false;
+    buf[pos++] = (uint8_t) (i - start);
+    memcpy(buf + pos, name->buf + start, i - start), pos += i - start;
+    if (i < name->len) i++;
+  }
+  buf[pos++] = 0;
+  buf[pos++] = (uint8_t) (rtype >> 8);
+  buf[pos++] = (uint8_t) rtype;
+  buf[pos++] = 0;
+  buf[pos++] = 1;
+  mdns_multicast_destination(c);
+  return mg_send(c, buf, pos);
 }
 
 bool mg_mdns_query(struct mg_connection *c, const char *name,
-                   unsigned int rtype) {
+                    unsigned int rtype) {
   struct mg_str name_;
+  if (!name) return false;
   name_.buf = (char *) name, name_.len = strlen(name);
   return mdns_query(c, &name_, rtype);
 }
@@ -2224,15 +2336,24 @@ static void sendmdnsreq(struct mg_connection *c, struct mg_str *name, int ms,
     mg_error(c, "resolve OOM");
   } else {
     struct mdns_data *reqs = (struct mdns_data *) c->mgr->active_mdns_requests;
+    bool pending = false;
+    struct mdns_data *other;
+    for (other = reqs; other; other = other->next)
+      if (mg_strcasecmp(other->name, *name) == 0) pending = true;
+    d->name = mg_strdup(*name);
+    if (!d->name.buf) {
+      mg_free(d);
+      mg_error(c, "resolve OOM");
+      return;
+    }
     d->next = reqs;
     c->mgr->active_mdns_requests = d;
     d->expire = mg_millis() + (uint64_t) ms;
-    d->name = mg_strdup(*name);
     d->c = c;
     c->is_resolving = 1;
     MG_VERBOSE(
         ("%lu resolving %.*s via mDNS", c->id, (int) name->len, name->buf));
-    if (!mdns_query(mdnsc, name, MG_DNS_RTYPE_A)) {
+    if (!pending && !mdns_query(mdnsc, name, MG_DNS_RTYPE_A)) {
       mg_error(c, "mDNS send");  // will remove newly created entry
     }
   }
@@ -13819,10 +13940,12 @@ void mg_multicast_add(struct mg_connection *c, char *ip) {
   MG_ERROR(("struct ip_mreq not defined"));
 #else
   struct ip_mreq mreq;
+  int ttl = 255;  // RFC 6762: link-local mDNS packets use hop limit 255
   mreq.imr_multiaddr.s_addr = inet_addr(ip);
   mreq.imr_interface.s_addr = mg_htonl(INADDR_ANY);
   setsockopt(FD(c), IPPROTO_IP, IP_ADD_MEMBERSHIP, (char *) &mreq,
-             sizeof(mreq));
+              sizeof(mreq));
+  setsockopt(FD(c), IPPROTO_IP, IP_MULTICAST_TTL, (char *) &ttl, sizeof(ttl));
 #endif  // !Zephyr
 #endif  // !lwIP
 #endif
