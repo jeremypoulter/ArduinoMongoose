@@ -109,7 +109,15 @@ bool MongooseMdns::begin(const char *hostname)
     return false;
   }
 
-  _mdns = mg_mdns_listen(Mongoose.getMgr(), eventHandler, _hostname);
+  // A resolver-only listener from MongooseCore::ensureMdnsResolver() gives
+  // way to this one: mg_mdns_listen() repoints mgr->mdns, and the old
+  // connection would otherwise sit on the port for the life of the program.
+  struct mg_mgr *mgr = Mongoose.getMgr();
+  if(mgr->mdns != NULL && mgr->mdns->fn == NULL) {
+    mgr->mdns->is_closing = 1;
+    mgr->mdns = NULL;
+  }
+  _mdns = mg_mdns_listen(mgr, eventHandler, _hostname);
   if (!_mdns) {
     free(_hostname);
     _hostname = nullptr;
@@ -128,8 +136,15 @@ bool MongooseMdns::begin(const char *hostname)
 void MongooseMdns::end()
 {
   if (_mdns) {
+    // mg_close_conn() does not clear mgr->mdns; the resolver would keep using
+    // the freed connection. Put the resolver-only listener back in its place.
+    struct mg_mgr *mgr = Mongoose.getMgr();
+    if (mgr->mdns == _mdns) {
+      mgr->mdns = NULL;
+    }
     _mdns->is_closing = 1;
     _mdns = nullptr;
+    Mongoose.ensureMdnsResolver();
   }
   if (_hostname) {
     free(_hostname);

@@ -1096,6 +1096,22 @@ struct timeval {
 #define MG_MAX_RECV_SIZE (3UL * 1024UL * 1024UL)  // Maximum recv IO buffer size
 #endif
 
+#ifndef MG_ENABLE_RESOLVER_CACHE
+#define MG_ENABLE_RESOLVER_CACHE 1  // Cache DNS/mDNS answers for their TTL
+#endif
+
+#ifndef MG_RESOLVER_CACHE_SIZE
+#define MG_RESOLVER_CACHE_SIZE 8  // Entries in the resolver cache
+#endif
+
+#ifndef MG_RESOLVER_CACHE_NAME_LEN
+#define MG_RESOLVER_CACHE_NAME_LEN 64  // Longest cacheable host name, with NUL
+#endif
+
+#ifndef MG_RESOLVER_CACHE_MAX_TTL
+#define MG_RESOLVER_CACHE_MAX_TTL 3600  // Seconds; longer TTLs are clipped
+#endif
+
 #ifndef MG_DATA_SIZE
 #define MG_DATA_SIZE 32  // struct mg_connection :: data size
 #endif
@@ -3918,6 +3934,7 @@ struct mg_dns_message {
   bool resolved;        // Resolve successful, addr is set
   struct mg_addr addr;  // Resolved address
   char name[256];       // Host name
+  uint32_t ttl;         // TTL of the answer addr came from, seconds
 };
 
 // DNS wire-format header (RFC 1035). All fields are in network byte order;
@@ -3964,6 +3981,7 @@ struct mg_mdns_resp {
   struct mg_dns_rr *rr;  // Resource record from the response
   struct mg_str name;    // Resolved hostname, without the .local suffix
   struct mg_addr addr;   // Resolved IP address
+  uint32_t ttl;          // TTL of the record, seconds (0 on a goodbye)
 };
 
 // Parses a DNS query or response from buf/len into dm. Returns true on success.
@@ -3991,6 +4009,26 @@ bool mg_mdns_query(struct mg_connection *c, const char *name, unsigned int rtype
 // Private API, do not expose or call in the user app
 void mg_resolve(struct mg_connection *, const char *url);
 void mg_resolve_cancel(struct mg_connection *);
+
+// Record an address in the resolver cache (see MG_ENABLE_RESOLVER_CACHE), as
+// the built-in resolvers do for every answer they receive. `ttl` is seconds;
+// zero evicts.
+void mg_resolver_cache_put(struct mg_str name, const struct mg_addr *addr,
+                           uint32_t ttl);
+
+// Platform resolver for .local names. Mongoose resolves those through its
+// own mDNS listener (mg_mdns_listen()); on a platform whose own mDNS stack
+// already owns port 5353 - ESP-IDF, for one - a second socket there starves
+// it, so instead a resolver can be registered that mg_resolve() calls when no
+// listener is open. `fn` must, later and asynchronously, either fill c->rem
+// (keeping c->rem.port) and call mg_connect_resolved(c), or call mg_error(c).
+// `cancel` is called from mg_resolve_cancel() when c goes away while a lookup
+// is pending; the resolver must forget c and never touch it again.
+typedef void (*mg_local_resolver_fn)(struct mg_connection *c,
+                                     struct mg_str host);
+typedef void (*mg_local_resolver_cancel_fn)(struct mg_connection *c);
+void mg_set_local_resolver(mg_local_resolver_fn fn,
+                           mg_local_resolver_cancel_fn cancel);
 
 
 
