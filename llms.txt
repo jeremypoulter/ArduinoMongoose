@@ -22,6 +22,6 @@ ArduinoMongoose is an Arduino-style C++ wrapper around the Mongoose networking l
 ## Updating Documentation
 - The project uses Doxygen and moxygen for generating API references and GitHub Pages documentation.
 - When adding new classes or methods to the wrappers, include Doxygen comments (e.g., `/** @brief ... */`).
-- The CI pipeline automatically builds and deploys documentation to GitHub Pages on merges to the `mongoose_7` branch.
+- The CI pipeline automatically builds and deploys documentation to GitHub Pages on merges to the `master` branch.
 
 For API information, refer to `docs/API_REFERENCE.md`.
