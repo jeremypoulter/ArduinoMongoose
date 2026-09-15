@@ -6,6 +6,8 @@
 #include <mongoose.h>
 
 #include <functional>
+#include <string>
+#include <vector>
 
 #include "MongooseString.h"
 
@@ -66,8 +68,17 @@ class MongooseMdns
     // A registered DNS-SD service record
     struct ServiceRecord {
       char srvcproto[64];  // e.g. "_http._tcp"
-      char txt[256];       // TXT record content (verbatim)
+      char txt[256];       // Length-prefixed DNS-SD strings
+      size_t txtLength;    // Wire-format length, including string length octets
       uint16_t port;       // TCP/UDP port
+    };
+
+    struct DiscoveredService {
+      std::string instance;  // Fully qualified service instance
+      std::string hostname;  // SRV target, including .local
+      std::vector<mg_addr> addresses;
+      std::vector<std::pair<std::string, std::string>> txt;
+      uint16_t port;
     };
 
   private:
@@ -75,9 +86,21 @@ class MongooseMdns
     char *_hostname;
 
     ServiceRecord _services[MAX_SERVICES];
+    mg_dnssd_record _listing[MAX_SERVICES];
     int _numServices;
 
     MongooseMdnsRequestHandler _onRequest;
+    struct BrowseRecord {
+      std::string name, target, txt;
+      mg_addr addr;
+      uint64_t expires;
+      uint16_t type, port;
+    };
+    std::vector<BrowseRecord> _records;
+    std::string _browseService;
+    uint64_t _nextQuery;
+    void handleResponse(const mg_mdns_resp &resp);
+    void pollBrowse();
 
     static void eventHandler(struct mg_connection *nc, int ev, void *ev_data);
     void handleReq(struct mg_connection *nc, struct mg_mdns_req *req);
@@ -85,6 +108,8 @@ class MongooseMdns
   public:
     MongooseMdns();
     ~MongooseMdns();
+    MongooseMdns(const MongooseMdns &) = delete;
+    MongooseMdns &operator=(const MongooseMdns &) = delete;
 
     /**
      * @brief Start the mDNS listener and advertise the given hostname.
@@ -116,10 +141,24 @@ class MongooseMdns
      *
      * @param srvcproto  Service type and protocol label, e.g. "_http._tcp"
      * @param port       TCP/UDP port
-     * @param txt        Optional TXT record content (verbatim, max 255 bytes)
+     * @param txt        Optional single TXT string (max 255 bytes), encoded by the wrapper
      * @return true if the service was registered (false if MAX_SERVICES reached)
      */
     bool addService(const char *srvcproto, uint16_t port, const char *txt = "");
+    /** @brief Add/update one DNS-SD TXT key, encoded as a separate string.
+     * @return false if the service is absent or the 256-byte TXT budget is exceeded.
+     */
+    bool addServiceTxt(const char *srvcproto, const char *key, const char *value);
+
+    /** @brief Start a non-blocking DNS-SD browse, replacing any previous browse.
+     * Poll Mongoose normally, read services(), then cancelBrowse().
+     * Retains at most 80 resource records, with TXT data limited to 1024 bytes.
+     */
+    bool browse(const char *srvcproto);
+    /** @brief Snapshot live DNS-SD results; incomplete instances may lack SRV/TXT/address data. */
+    std::vector<DiscoveredService> services() const;
+    /** @brief Stop browsing and release all browse records, keeping the resolver active. */
+    void cancelBrowse();
 
     /**
      * @brief Convenience overload accepting separate protocol and transport.
@@ -177,7 +216,7 @@ class MongooseMdns
      * The mDNS listener must already be started with begin().
      * Responses are delivered via MG_EV_MDNS_RESP to Mongoose resolver.
      *
-     * @param name   Hostname to query (without .local)
+     * @param name   Hostname or service name, with or without .local
      * @param rtype  DNS record type (default: MG_DNS_RTYPE_A for IPv4)
      * @return true if the query was sent successfully
      */
