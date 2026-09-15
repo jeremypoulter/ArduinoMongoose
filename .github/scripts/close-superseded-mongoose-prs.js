@@ -11,7 +11,7 @@ module.exports = async ({ github, context }) => {
     owner,
     repo,
     state: 'open',
-    base: 'mongoose_7',
+    base: 'master',
     per_page: 100,
   });
 
