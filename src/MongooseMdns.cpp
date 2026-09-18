@@ -292,23 +292,16 @@ void MongooseMdns::cancelBrowse()
 
 void MongooseMdns::handleResponse(const mg_mdns_resp &resp)
 {
-  if (_browseService.empty() || resp.txt.len > 1024) return;
-  uint64_t now = mg_millis();
-  _records.erase(std::remove_if(_records.begin(), _records.end(),
-    [now](const BrowseRecord &r) { return r.expires <= now; }), _records.end());
-  std::string name = mdnsString(resp.name), target = mdnsString(resp.target);
-  for (auto it = _records.begin(); it != _records.end(); ++it) {
-    if (it->type != resp.rr->atype || mg_casecmp(it->name.c_str(), name.c_str())) continue;
-    // PTR and address RRsets can contain several records with the same owner.
-    if (it->type == MG_DNS_RTYPE_PTR && mg_casecmp(it->target.c_str(), target.c_str())) continue;
-    if ((it->type == MG_DNS_RTYPE_A || it->type == MG_DNS_RTYPE_AAAA) &&
-        memcmp(it->addr.addr.ip, resp.addr.addr.ip, resp.addr.is_ip6 ? 16 : 4)) continue;
-    _records.erase(it);
-    break;
-  }
-  if (!resp.ttl || _records.size() >= 80) return;
-  _records.push_back({name, target, mdnsString(resp.txt), resp.addr,
-    now + (uint64_t)resp.ttl * 1000, resp.rr->atype, resp.port});
+  // Stubbed out: upstream Mongoose's own mg_mdns_resp (merged from master,
+  // see the mDNS reconciliation) no longer carries the target/txt/ttl/port
+  // fields this was written against -- it now aggregates a PTR/SRV/TXT/A
+  // chain into resp.sd (a struct mg_dnssd_record: srvcproto/txt/port) instead
+  // of a flat per-record shape. browse()/services() are left in place (they
+  // only touch _records, which this simply never populates), but rebuilding
+  // this against the new shape -- including where TTL-based expiry now comes
+  // from, since mg_mdns_resp carries none -- is deferred; see the reconciliation
+  // notes for this branch.
+  (void) resp;
 }
 
 std::vector<MongooseMdns::DiscoveredService> MongooseMdns::services() const
