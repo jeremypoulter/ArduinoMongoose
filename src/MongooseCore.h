@@ -67,6 +67,14 @@ class MongooseCore
     void ipConfigChanged();
 
     /**
+     * @brief Make sure a mDNS listener exists so *.local names can be resolved
+     *
+     * Called from ipConfigChanged(); a sketch that never reports IP changes
+     * can call it directly once the network is up.
+     */
+    void ensureMdnsResolver();
+
+    /**
      * @brief Get the currently configured Root CA certificate
      * 
      * @return mg_str The Root CA as a Mongoose string

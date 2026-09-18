@@ -1772,6 +1772,7 @@ struct dns_data {
   struct mg_connection *c;
   uint64_t expire;
   uint16_t txnid;
+  struct mg_str name;  // the name asked for, which a CNAME answer does not carry
 };
 
 static void sendnsreq(struct mg_connection *, struct mg_str *, int,
@@ -1789,7 +1790,96 @@ static void sendmdnsreq(struct mg_connection *, struct mg_str *, int,
 
 static void dns_free(struct dns_data **head, struct dns_data *d) {
   LIST_DELETE(struct dns_data, head, d);
+  mg_free((void *) d->name.buf);
   mg_free(d);
+}
+
+#if MG_ENABLE_RESOLVER_CACHE
+// Resolver cache. The DNS and mDNS resolvers both drop their answers here and
+// mg_resolve() consults it before sending a query, so a host that is connected
+// to repeatedly - a broker on every reconnect, a peer polled every few seconds
+// - costs one lookup per TTL rather than one per connection. It matters most
+// for mDNS: a lookup there has a 500ms budget, and RFC 6762 s6 forbids a
+// responder from multicasting the same record twice within one second, so
+// without the cache the second of two back-to-back lookups of the same .local
+// name reliably times out. Answers with a zero TTL are not cached and evict
+// what is there (RFC 1035 s3.2.1; an mDNS goodbye, RFC 6762 s10.1).
+struct rcache_entry {
+  char name[MG_RESOLVER_CACHE_NAME_LEN];
+  struct mg_addr addr;
+  uint64_t expire;  // 0: slot is free
+};
+static struct rcache_entry s_rcache[MG_RESOLVER_CACHE_SIZE];
+
+static struct rcache_entry *rcache_find(struct mg_str name) {
+  size_t i;
+  for (i = 0; i < MG_RESOLVER_CACHE_SIZE; i++) {
+    struct rcache_entry *e = &s_rcache[i];
+    if (e->expire != 0 && mg_strcasecmp(mg_str(e->name), name) == 0) return e;
+  }
+  return NULL;
+}
+
+static void rcache_put(struct mg_str name, const struct mg_addr *addr,
+                       uint32_t ttl) {
+  struct rcache_entry *e = rcache_find(name);
+  if (ttl == 0) {
+    if (e != NULL) e->expire = 0;
+    return;
+  }
+  if (name.len == 0 || name.len >= MG_RESOLVER_CACHE_NAME_LEN) return;
+  if (e == NULL) {
+    // A free slot, else the one that expires soonest
+    size_t i;
+    e = &s_rcache[0];
+    for (i = 0; i < MG_RESOLVER_CACHE_SIZE && e->expire != 0; i++) {
+      if (s_rcache[i].expire < e->expire) e = &s_rcache[i];
+    }
+    memcpy(e->name, name.buf, name.len);
+    e->name[name.len] = '\0';
+  }
+  if (ttl > MG_RESOLVER_CACHE_MAX_TTL) ttl = MG_RESOLVER_CACHE_MAX_TTL;
+  e->addr = *addr;
+  e->expire = mg_millis() + (uint64_t) ttl * 1000;
+  MG_VERBOSE(("cached %.*s = %M for %us", (int) name.len, name.buf,
+              mg_print_ip, addr, (unsigned) ttl));
+}
+
+static bool rcache_get(struct mg_str name, struct mg_addr *addr) {
+  struct rcache_entry *e = rcache_find(name);
+  if (e == NULL) return false;
+  if (mg_millis() > e->expire) {
+    e->expire = 0;
+    return false;
+  }
+  *addr = e->addr;
+  return true;
+}
+#else
+static void rcache_put(struct mg_str name, const struct mg_addr *addr,
+                       uint32_t ttl) {
+  (void) name, (void) addr, (void) ttl;
+}
+static bool rcache_get(struct mg_str name, struct mg_addr *addr) {
+  (void) name, (void) addr;
+  return false;
+}
+#endif
+
+void mg_resolver_cache_put(struct mg_str name, const struct mg_addr *addr,
+                           uint32_t ttl) {
+  rcache_put(name, addr, ttl);
+}
+
+// Platform resolver for .local names, used when no mDNS listener is open.
+// See mg_set_local_resolver().
+static mg_local_resolver_fn s_local_resolver = NULL;
+static mg_local_resolver_cancel_fn s_local_resolver_cancel = NULL;
+
+void mg_set_local_resolver(mg_local_resolver_fn fn,
+                           mg_local_resolver_cancel_fn cancel) {
+  s_local_resolver = fn;
+  s_local_resolver_cancel = cancel;
 }
 
 static void mdns_free(struct mdns_data **head, struct mdns_data *d) {
@@ -1812,6 +1902,7 @@ void mg_resolve_cancel(struct mg_connection *c) {
     mtmp = md->next;
     if (md->c == c) mdns_free(mhead, md);
   }
+  if (s_local_resolver_cancel != NULL) s_local_resolver_cancel(c);
 }
 
 static size_t mg_dns_parse_name_depth(const uint8_t *s, size_t len, size_t ofs,
@@ -1880,6 +1971,16 @@ size_t mg_dns_parse_rr(const uint8_t *buf, size_t len, size_t ofs,
   return (size_t) (rr->nlen + rr->alen + 10);
 }
 
+// TTL of an answer RR whose wire form starts at `rr_start`: name, then 2-byte
+// type, 2-byte class, 4-byte TTL. Only valid for a record mg_dns_parse_rr()
+// accepted with is_question == false.
+static uint32_t mg_dns_rr_ttl(const uint8_t *rr_start,
+                              const struct mg_dns_rr *rr) {
+  const uint8_t *t = rr_start + rr->nlen + 4;
+  return ((uint32_t) t[0] << 24) | ((uint32_t) t[1] << 16) |
+         ((uint32_t) t[2] << 8) | (uint32_t) t[3];
+}
+
 bool mg_dns_parse(const uint8_t *buf, size_t len, struct mg_dns_message *dm) {
   const struct mg_dns_header *h = (struct mg_dns_header *) buf;
   struct mg_dns_rr rr;
@@ -1921,12 +2022,14 @@ bool mg_dns_parse(const uint8_t *buf, size_t len, struct mg_dns_message *dm) {
     if (rr.alen == 4 && rr.atype == MG_DNS_RTYPE_A && rr.aclass == 1) {
       dm->addr.is_ip6 = false;
       memcpy(&dm->addr.addr.ip, &buf[ofs - 4], 4);
+      dm->ttl = mg_dns_rr_ttl(&buf[ofs - n], &rr);
       dm->resolved = true;
       break;  // Return success
     } else if (rr.alen == 16 && rr.atype == MG_DNS_RTYPE_AAAA &&
                rr.aclass == 1) {
       dm->addr.is_ip6 = true;
       memcpy(&dm->addr.addr.ip, &buf[ofs - 16], 16);
+      dm->ttl = mg_dns_rr_ttl(&buf[ofs - n], &rr);
       dm->resolved = true;
       break;  // Return success
     }
@@ -1958,6 +2061,7 @@ static void dns_cb(struct mg_connection *c, int ev, void *ev_data) {
         if (dm.txnid != d->txnid) continue;
         if (d->c->is_resolving) {
           if (dm.resolved) {
+            rcache_put(d->name, &dm.addr, dm.ttl);
             dm.addr.port = d->c->rem.port;  // Save port
             d->c->rem = dm.addr;            // Copy resolved address
             MG_DEBUG(
@@ -2053,6 +2157,7 @@ static void sendnsreq(struct mg_connection *c, struct mg_str *name, int ms,
     c->mgr->active_dns_requests = d;
     d->expire = mg_millis() + (uint64_t) ms;
     d->c = c;
+    d->name = mg_strdup(*name);
     c->is_resolving = 1;
     MG_VERBOSE(("%lu resolving %.*s @ %s, txnid %hu", c->id, (int) name->len,
                 name->buf, dnsc->url, d->txnid));
@@ -2068,10 +2173,22 @@ void mg_resolve(struct mg_connection *c, const char *url) {
   if (mg_aton(host, &c->rem)) {
     // host is an IP address, do not fire name resolution
     mg_connect_resolved(c);
+  } else if (rcache_get(host, &c->rem)) {
+    // recently resolved, and still within its TTL
+    c->rem.port = mg_htons(mg_url_port(url));  // rcache_get replaced rem
+    MG_DEBUG(("%lu %.*s is %M (cached)", c->id, (int) host.len, host.buf,
+              mg_print_ip, &c->rem));
+    mg_connect_resolved(c);
   } else if (host.len > 6 &&
              strncmp(".local", &host.buf[host.len - 6], 6) == 0) {
     // this is a request for a .local name (mDNS)
-    sendmdnsreq(c, &host, 500, c->mgr->mdns, c->mgr->use_dns6);  // 500ms tmout
+    if (c->mgr->mdns == NULL && s_local_resolver != NULL) {
+      // No listener of our own: the platform's mDNS stack answers instead.
+      c->is_resolving = 1;
+      s_local_resolver(c, host);
+    } else {
+      sendmdnsreq(c, &host, 500, c->mgr->mdns, c->mgr->use_dns6);  // 500ms tmout
+    }
   } else {
     // host is not an IP nor a .local, send DNS resolution request
     struct mg_dns *dns = c->mgr->use_dns6 ? &c->mgr->dns6 : &c->mgr->dns4;
@@ -2440,7 +2557,9 @@ static void handle_mdns_response(struct mg_connection *c) {
   }
   if (atype == MG_DNS_RTYPE_A) {
     resp.rr = &rr_[0];
-    MG_DEBUG(("A response from %s = %M", name, mg_print_ip, &resp.addr));
+    resp.ttl = mg_dns_rr_ttl(c->recv.buf + roff_[0], &rr_[0]);
+    MG_DEBUG(("A response from %s = %M (ttl %u)", name, mg_print_ip, &resp.addr,
+              (unsigned) resp.ttl));
 #if 0
   } else if (atype == MG_DNS_RTYPE_AAAA) {
     resp.rr = &rr_[4];
@@ -2515,6 +2634,9 @@ static void mdns_cb(struct mg_connection *c, int ev, void *ev_data) {
   } else if (ev == MG_EV_MDNS_RESP) {
     struct mg_mdns_resp *resp = (struct mg_mdns_resp *) ev_data;
     if (resp->rr->atype == MG_DNS_RTYPE_A) {
+      // Every answer seen goes in, asked for or not: an unsolicited
+      // announcement is as good as a reply, and a goodbye (TTL 0) evicts.
+      rcache_put(resp->name, &resp->addr, resp->ttl);
       for (d = *head; d != NULL; d = tmp) {
         tmp = d->next;
         if (mg_strcasecmp(d->name, resp->name) != 0) continue;
