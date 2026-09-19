@@ -63,10 +63,10 @@ struct MongooseMdnsRequest
 class MongooseMdns
 {
   public:
-    // Maximum number of services that can be registered
+    /** @brief Maximum number of services that can be registered at once. */
     static const int MAX_SERVICES = 8;
 
-    // A registered DNS-SD service record
+    /** @brief One locally registered DNS-SD service, as advertised. */
     struct ServiceRecord {
       char srvcproto[64];  // e.g. "_http._tcp"
       char txt[256];       // Length-prefixed DNS-SD strings
@@ -115,7 +115,9 @@ class MongooseMdns
     void handleReq(struct mg_connection *nc, struct mg_mdns_req *req);
 
   public:
+    /** @brief Construct an inactive responder; call begin() to start it. */
     MongooseMdns();
+    /** @brief Stop the listener, if running, and release browse storage. */
     ~MongooseMdns();
     MongooseMdns(const MongooseMdns &) = delete;
     MongooseMdns &operator=(const MongooseMdns &) = delete;
@@ -132,6 +134,7 @@ class MongooseMdns
     bool begin(const char *hostname);
 
 #ifdef ARDUINO
+    /** @brief Arduino String overload of begin(const char *). */
     bool begin(const String &hostname) {
       return begin(hostname.c_str());
     }
@@ -186,10 +189,12 @@ class MongooseMdns
     bool addService(const char *protocol, const char *transport, uint16_t port, const char *txt = "");
 
 #ifdef ARDUINO
+    /** @brief Arduino String overload of addService(const char *, uint16_t, const char *). */
     bool addService(const String &srvcproto, uint16_t port, const String &txt = String()) {
       return addService(srvcproto.c_str(), port, txt.length() > 0 ? txt.c_str() : "");
     }
 
+    /** @brief Arduino String overload of addService(const char *, const char *, uint16_t, const char *). */
     bool addService(const String &protocol, const String &transport, uint16_t port, const String &txt = String()) {
       return addService(protocol.c_str(), transport.c_str(), port, txt.length() > 0 ? txt.c_str() : "");
     }
@@ -213,10 +218,12 @@ class MongooseMdns
     bool removeService(const char *protocol, const char *transport);
 
 #ifdef ARDUINO
+    /** @brief Arduino String overload of removeService(const char *). */
     bool removeService(const String &srvcproto) {
       return removeService(srvcproto.c_str());
     }
 
+    /** @brief Arduino String overload of removeService(const char *, const char *). */
     bool removeService(const String &protocol, const String &transport) {
       return removeService(protocol.c_str(), transport.c_str());
     }
@@ -235,6 +242,7 @@ class MongooseMdns
     bool query(const char *name, unsigned int rtype = MG_DNS_RTYPE_A);
 
 #ifdef ARDUINO
+    /** @brief Arduino String overload of query(const char *, unsigned int). */
     bool query(const String &name, unsigned int rtype = MG_DNS_RTYPE_A) {
       return query(name.c_str(), rtype);
     }
