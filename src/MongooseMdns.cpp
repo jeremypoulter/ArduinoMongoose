@@ -21,8 +21,7 @@ MongooseMdns::MongooseMdns() :
   _mdns(nullptr),
   _hostname(nullptr),
   _numServices(0),
-  _onRequest(nullptr),
-  _nextQuery(0)
+  _onRequest(nullptr)
 {
 }
 
@@ -40,8 +39,6 @@ void MongooseMdns::eventHandler(struct mg_connection *nc, int ev, void *ev_data)
     self->handleReq(nc, (struct mg_mdns_req *)ev_data);
   } else if (self && ev == MG_EV_MDNS_RESP) {
     self->handleResponse(*(struct mg_mdns_resp *)ev_data);
-  } else if (self && ev == MG_EV_POLL) {
-    self->pollBrowse();
   } else if (self && ev == MG_EV_CLOSE) {
     self->_mdns = nullptr;
   }
@@ -272,16 +269,15 @@ static std::string mdnsString(mg_str value)
   return value.len ? std::string(value.buf, value.len) : std::string();
 }
 
-bool MongooseMdns::browse(const char *service)
+bool MongooseMdns::browse(const char *srvcproto)
 {
   cancelBrowse();
-  if (!service || !query(service, MG_DNS_RTYPE_PTR)) return false;
-  _browseService = service;
+  if (!srvcproto || !*srvcproto) return false;
+  _browseService = srvcproto;
   if (!_browseService.empty() && _browseService.back() == '.') _browseService.pop_back();
-  if (_browseService.size() < 6 || mg_casecmp(_browseService.c_str() + _browseService.size() - 6, ".local"))
-    _browseService += ".local";
-  _nextQuery = mg_millis() + 1000;
-  return true;
+  // query() appends ".local" for the PTR query; _browseService itself stays
+  // unsuffixed to match resp.sd.srvcproto, which never carries ".local".
+  return query(_browseService.c_str(), MG_DNS_RTYPE_PTR);
 }
 
 void MongooseMdns::cancelBrowse()
@@ -290,65 +286,78 @@ void MongooseMdns::cancelBrowse()
   std::vector<BrowseRecord>().swap(_records);
 }
 
+static std::vector<std::pair<std::string, std::string>> mdnsParseTxt(mg_str raw)
+{
+  std::vector<std::pair<std::string, std::string>> txt;
+  for (size_t pos = 0; pos < raw.len;) {
+    size_t len = (unsigned char) raw.buf[pos++];
+    if (pos + len > raw.len) break;
+    std::string entry(raw.buf + pos, len);
+    size_t eq = entry.find('=');
+    txt.push_back({entry.substr(0, eq), eq == std::string::npos ? "" : entry.substr(eq + 1)});
+    pos += len;
+  }
+  return txt;
+}
+
 void MongooseMdns::handleResponse(const mg_mdns_resp &resp)
 {
-  // Stubbed out: upstream Mongoose's own mg_mdns_resp (merged from master,
-  // see the mDNS reconciliation) no longer carries the target/txt/ttl/port
-  // fields this was written against -- it now aggregates a PTR/SRV/TXT/A
-  // chain into resp.sd (a struct mg_dnssd_record: srvcproto/txt/port) instead
-  // of a flat per-record shape. browse()/services() are left in place (they
-  // only touch _records, which this simply never populates), but rebuilding
-  // this against the new shape -- including where TTL-based expiry now comes
-  // from, since mg_mdns_resp carries none -- is deferred; see the reconciliation
-  // notes for this branch.
-  (void) resp;
+  if (_browseService.empty() || !resp.rr) return;
+  std::string srvcproto = mdnsString(resp.sd.srvcproto);
+  if (srvcproto.empty() || mg_casecmp(srvcproto.c_str(), _browseService.c_str())) return;
+
+  // resp.name is the bare instance label (no ".local", no service suffix)
+  // for a standalone PTR/SRV/TXT answer, but becomes the *resolved SRV
+  // target* -- e.g. "peer.local" -- once a combined PTR+SRV reply supplies
+  // one (see handle_mdns_response()'s "PTR response" branch: resp.name is
+  // set to `host` whenever an SRV record was found). Either way, the first
+  // label is the service instance's own base label: our own responder never
+  // gives an instance a name distinct from its hostname (there is no
+  // separate "friendly name" API), so re-suffixing it recovers the same
+  // instance name a bare PTR would have given directly.
+  std::string label = mdnsString(resp.name);
+  if (label.empty()) return;
+  std::string instance = label.substr(0, label.find('.')) + "." + srvcproto + ".local";
+
+  BrowseRecord *rec = nullptr;
+  for (auto &r : _records) {
+    if (!mg_casecmp(r.instance.c_str(), instance.c_str())) { rec = &r; break; }
+  }
+  if (!rec) {
+    if (_records.size() >= (size_t) MAX_BROWSE_RECORDS) return;
+    _records.push_back(BrowseRecord{});
+    rec = &_records.back();
+    rec->instance = instance;
+  }
+  rec->expires = mg_millis() + MG_MDNS_CACHE_TTL_MS;
+
+  // resp.sd.port is 0 unless an SRV record was matched; a real service never
+  // advertises port 0. Guard on label containing a dot so a bare instance
+  // label from an (unused by this library, but possible from a manual
+  // mg_mdns_query(MG_DNS_RTYPE_SRV)) standalone SRV query -- for which
+  // upstream's parser does not expose the resolved target -- is never
+  // mistaken for a resolved hostname.
+  if (resp.sd.port && label.find('.') != std::string::npos) {
+    rec->hostname = label;
+    rec->port = resp.sd.port;
+  }
+  if (resp.sd.txt.buf) rec->txt = mdnsParseTxt(resp.sd.txt);
+  if (resp.addr.addr.ip4) rec->addresses = {resp.addr};
 }
 
 std::vector<MongooseMdns::DiscoveredService> MongooseMdns::services() const
 {
   std::vector<DiscoveredService> result;
   uint64_t now = mg_millis();
-  for (const auto &ptr : _records) {
-    if (ptr.type != MG_DNS_RTYPE_PTR || ptr.expires <= now ||
-        mg_casecmp(ptr.name.c_str(), _browseService.c_str())) continue;
-    DiscoveredService svc = {};
-    svc.instance = ptr.target;
-    for (const auto &r : _records) {
-      if (r.expires <= now || mg_casecmp(r.name.c_str(), ptr.target.c_str())) continue;
-      if (r.type == MG_DNS_RTYPE_SRV) { svc.hostname = r.target; svc.port = r.port; }
-      if (r.type == MG_DNS_RTYPE_TXT) {
-        for (size_t pos = 0; pos < r.txt.size();) {
-          size_t len = (unsigned char)r.txt[pos++];
-          std::string text = r.txt.substr(pos, len);
-          size_t eq = text.find('=');
-          if (len) svc.txt.push_back({text.substr(0, eq), eq == std::string::npos ? "" : text.substr(eq + 1)});
-          pos += len;
-        }
-      }
-    }
-    for (const auto &r : _records) {
-      if ((r.type == MG_DNS_RTYPE_A || r.type == MG_DNS_RTYPE_AAAA) &&
-          r.expires > now && !mg_casecmp(r.name.c_str(), svc.hostname.c_str()))
-        svc.addresses.push_back(r.addr);
-    }
-    result.push_back(svc);
+  for (const auto &r : _records) {
+    if (r.expires <= now) continue;
+    DiscoveredService svc;
+    svc.instance = r.instance;
+    svc.hostname = r.hostname;
+    svc.port = r.port;
+    svc.addresses = r.addresses;
+    svc.txt = r.txt;
+    result.push_back(std::move(svc));
   }
   return result;
-}
-
-void MongooseMdns::pollBrowse()
-{
-  if (_browseService.empty() || mg_millis() < _nextQuery) return;
-  _nextQuery = mg_millis() + 1000;
-  query(_browseService.c_str(), MG_DNS_RTYPE_PTR);
-  for (const auto &svc : services()) {
-    if (svc.hostname.empty()) query(svc.instance.c_str(), MG_DNS_RTYPE_SRV);
-    // An empty TXT RR is valid; distinguish it from a missing record.
-    bool hasTxt = false;
-    for (const auto &r : _records)
-      if (r.type == MG_DNS_RTYPE_TXT && r.expires > mg_millis() &&
-          !mg_casecmp(r.name.c_str(), svc.instance.c_str())) hasTxt = true;
-    if (!hasTxt) query(svc.instance.c_str(), MG_DNS_RTYPE_TXT);
-    if (!svc.hostname.empty() && svc.addresses.empty()) query(svc.hostname.c_str());
-  }
 }

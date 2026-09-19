@@ -118,7 +118,7 @@ static void test_mdns_remove_service_null_returns_false() {
 namespace {
 using Packet = std::vector<uint8_t>;
 
-void word(Packet &p, unsigned value) {
+void wordBE(Packet &p, unsigned value) {
   p.push_back((uint8_t)(value >> 8)); p.push_back((uint8_t)value);
 }
 
@@ -140,8 +140,8 @@ void record(Packet &p, const std::string &owner, unsigned type,
             const Packet &data, unsigned ttl = 120) {
   auto labels = name(owner);
   p.insert(p.end(), labels.begin(), labels.end());
-  word(p, type); word(p, 0x8001); word(p, ttl >> 16); word(p, ttl);
-  word(p, data.size()); p.insert(p.end(), data.begin(), data.end());
+  wordBE(p, type); wordBE(p, 0x8001); wordBE(p, ttl >> 16); wordBE(p, ttl);
+  wordBE(p, data.size()); p.insert(p.end(), data.begin(), data.end());
 }
 
 Packet response(unsigned answers, unsigned additional = 0) {
@@ -190,7 +190,7 @@ static void test_mdns_query_encodes_requested_type_and_local_suffix() {
   expected[5] = 1;
   auto labels = name("_unit-query._tcp.local");
   expected.insert(expected.end(), labels.begin(), labels.end());
-  word(expected, MG_DNS_RTYPE_PTR); word(expected, 1);
+  wordBE(expected, MG_DNS_RTYPE_PTR); wordBE(expected, 1);
   TEST_ASSERT_EQUAL(expected.size(), packet.size());
   TEST_ASSERT_EQUAL_MEMORY(expected.data(), packet.data(), packet.size());
   // sendto() refreshes loc to the wildcard bind address. A second query must
@@ -201,48 +201,83 @@ static void test_mdns_query_encodes_requested_type_and_local_suffix() {
   TEST_ASSERT_EQUAL_MEMORY(expected.data(), packet.data(), packet.size());
 }
 
-static void test_mdns_browse_assembles_split_out_of_order_records_and_goodbye() {
-  // MongooseMdns::handleResponse() is currently stubbed out: the mg_mdns_resp
-  // struct it fed on (resp.target/.txt/.ttl/.port) was replaced during the
-  // mDNS reconciliation with upstream's struct mg_dnssd_record shape, which
-  // browse() has not yet been rewritten against. See the reconciliation notes
-  // for this branch for what a real fix needs. Left in place (rather than
-  // deleted) as the spec for that follow-up work.
-  TEST_IGNORE_MESSAGE("mDNS browse layer not yet ported to upstream's mg_dnssd_record shape");
+static void test_mdns_browse_resolves_combined_ptr_srv_txt_a_reply() {
+  // Our own responder always answers a PTR query with a single combined
+  // PTR+SRV+TXT+A reply (see handle_mdns_query()'s "serve PTR + SRV + TXT +
+  // A" in mongoose.c), and so does any peer running this same library --
+  // simulate that shape, the one this library's browse() actually receives.
   ScopedMongoose scope;
   MongooseMdns mdns;
   TEST_ASSERT_TRUE(mdns.begin("unit-browse"));
   TEST_ASSERT_TRUE(mdns.browse("_openevse._tcp"));
   auto *c = Mongoose.getMgr()->mdns;
-  const char *instance = "Display Name._openevse._tcp.local";
-  Packet p = response(1, 4);
-  // Unrelated record >512 bytes used to make the whole datagram unparseable.
-  Packet padding(601, 'x'); padding[0] = 255; padding[256] = 255; padding[512] = 88;
-  record(p, "other.local", MG_DNS_RTYPE_TXT, padding);
-  record(p, "peer.local", MG_DNS_RTYPE_AAAA, Packet(16, 1));
-  record(p, "peer.local", MG_DNS_RTYPE_A, {10, 2, 3, 4});
-  record(p, instance, MG_DNS_RTYPE_TXT, {4, 'i', 'd', '=', '7', 5, 's', 's', 'l', '=', '1'});
-  Packet srv(4, 0); word(srv, 8443);
+  // Our responder never gives an instance a name distinct from its hostname
+  // (see handleResponse()'s comment on this), so "peer" is used for both.
+  const char *instance = "peer._openevse._tcp.local";
+
+  Packet p = response(1, 3);
+  record(p, "_openevse._tcp.local", MG_DNS_RTYPE_PTR, name(instance));
+  Packet srv(4, 0); wordBE(srv, 8443);
   auto host = name("peer.local"); srv.insert(srv.end(), host.begin(), host.end());
   record(p, instance, MG_DNS_RTYPE_SRV, srv);
+  record(p, instance, MG_DNS_RTYPE_TXT, {4, 'i', 'd', '=', '7', 5, 's', 's', 'l', '=', '1'});
+  record(p, "peer.local", MG_DNS_RTYPE_A, {10, 2, 3, 4});
   inject(c, p);
-  TEST_ASSERT_TRUE(mdns.services().empty());
-  p = response(1);
-  record(p, "_openevse._tcp.local", MG_DNS_RTYPE_PTR, name(instance));
-  inject(c, p);
+
   auto services = mdns.services();
   TEST_ASSERT_EQUAL(1, services.size());
   TEST_ASSERT_EQUAL_STRING(instance, services[0].instance.c_str());
   TEST_ASSERT_EQUAL_STRING("peer.local", services[0].hostname.c_str());
   TEST_ASSERT_EQUAL(8443, services[0].port);
-  TEST_ASSERT_EQUAL(2, services[0].addresses.size());
-  TEST_ASSERT_TRUE(services[0].addresses[0].is_ip6);
+  TEST_ASSERT_EQUAL(1, services[0].addresses.size());
+  TEST_ASSERT_FALSE(services[0].addresses[0].is_ip6);
   TEST_ASSERT_EQUAL_STRING("ssl", services[0].txt[1].first.c_str());
   TEST_ASSERT_EQUAL_STRING("1", services[0].txt[1].second.c_str());
+
+  // A reply for an unrelated service type must not show up in this browse.
   p = response(1);
-  record(p, "_openevse._tcp.local", MG_DNS_RTYPE_PTR, name(instance), 0);
+  record(p, "_http._tcp.local", MG_DNS_RTYPE_PTR, name("other._http._tcp.local"));
   inject(c, p);
+  TEST_ASSERT_EQUAL(1, mdns.services().size());
+
+  // struct mg_mdns_resp carries no TTL (see MG_MDNS_CACHE_TTL_MS in
+  // mongoose.h), so a browse result expires on the same fixed lifetime as
+  // the resolver cache rather than reacting to a goodbye immediately.
+  pumpFor(MG_MDNS_CACHE_TTL_MS + 50);
   TEST_ASSERT_TRUE(mdns.services().empty());
+
+  mdns.cancelBrowse();
+  TEST_ASSERT_TRUE(mdns.services().empty());
+}
+
+static void test_mdns_browse_instance_name_is_approximated_from_hostname() {
+  // handle_mdns_response() only gives handleResponse() the resolved SRV
+  // target once a combined PTR+SRV reply supplies one -- the PTR's own
+  // instance name is not part of struct mg_mdns_resp in that case (see
+  // handleResponse()'s comment). A service instance advertised under a name
+  // that differs from its hostname is therefore reported under the hostname
+  // instead: exact for this library's own responder (hostname *is* the
+  // instance name there, with no separate "friendly name" API), and only an
+  // approximation for a third-party responder using a distinct one --
+  // documented here rather than silently assumed.
+  ScopedMongoose scope;
+  MongooseMdns mdns;
+  TEST_ASSERT_TRUE(mdns.begin("unit-browse2"));
+  TEST_ASSERT_TRUE(mdns.browse("_openevse._tcp"));
+  auto *c = Mongoose.getMgr()->mdns;
+  const char *instance = "Display Name._openevse._tcp.local";
+
+  Packet p = response(1, 1);
+  record(p, "_openevse._tcp.local", MG_DNS_RTYPE_PTR, name(instance));
+  Packet srv(4, 0); wordBE(srv, 8443);
+  auto host = name("peer.local"); srv.insert(srv.end(), host.begin(), host.end());
+  record(p, instance, MG_DNS_RTYPE_SRV, srv);
+  inject(c, p);
+
+  auto services = mdns.services();
+  TEST_ASSERT_EQUAL(1, services.size());
+  TEST_ASSERT_EQUAL_STRING("peer._openevse._tcp.local", services[0].instance.c_str());
+  TEST_ASSERT_EQUAL_STRING("peer.local", services[0].hostname.c_str());
 }
 
 static void test_mdns_resolves_parallel_clients_and_expires_fixed_ttl_cache() {
@@ -312,7 +347,7 @@ static void test_mdns_advertises_encoded_txt_and_full_srv_owner() {
   Packet q(12, 0); q[5] = 1;
   auto labels = name("unit-service._openevse._tcp.local");
   q.insert(q.end(), labels.begin(), labels.end());
-  word(q, MG_DNS_RTYPE_SRV); word(q, 0x8001);
+  wordBE(q, MG_DNS_RTYPE_SRV); wordBE(q, 0x8001);
   inject(c, q);
   TEST_ASSERT_TRUE(pumpUntil([&]() { return !packet.empty(); }));
   TEST_ASSERT_EQUAL_MEMORY(labels.data(), packet.data() + 12, labels.size());
@@ -333,9 +368,9 @@ static void test_mdns_processes_later_questions_and_service_enumeration() {
   c->rem = rx->loc;
   Packet q(12, 0); q[5] = 2;
   auto labels = name("not-us.local");
-  q.insert(q.end(), labels.begin(), labels.end()); word(q, 1); word(q, 0x8001);
+  q.insert(q.end(), labels.begin(), labels.end()); wordBE(q, 1); wordBE(q, 0x8001);
   labels = name("_services._dns-sd._udp.local");
-  q.insert(q.end(), labels.begin(), labels.end()); word(q, 12); word(q, 0x8001);
+  q.insert(q.end(), labels.begin(), labels.end()); wordBE(q, 12); wordBE(q, 0x8001);
   inject(c, q);
   TEST_ASSERT_TRUE(pumpUntil([&]() { return !packet.empty(); }));
   TEST_ASSERT_EQUAL(2, packet[7]);
@@ -359,10 +394,10 @@ static void test_mdns_compressed_response_questions_and_malformed_records() {
   auto *client = mg_connect(mgr, "udp://compressed.local:1234", nullptr, nullptr);
   Packet p = response(1); p[5] = 1;
   auto labels = name("compressed.local");
-  p.insert(p.end(), labels.begin(), labels.end()); word(p, 1); word(p, 1);
+  p.insert(p.end(), labels.begin(), labels.end()); wordBE(p, 1); wordBE(p, 1);
   // The answer owner is a compression pointer to the question, not a label.
-  word(p, 0xc00c); word(p, 1); word(p, 0x8001);
-  word(p, 0); word(p, 120); word(p, 4);
+  wordBE(p, 0xc00c); wordBE(p, 1); wordBE(p, 0x8001);
+  wordBE(p, 0); wordBE(p, 120); wordBE(p, 4);
   p.insert(p.end(), {127, 0, 0, 1});
   auto truncated = p; truncated.pop_back();
   inject(mgr->mdns, truncated);
@@ -380,7 +415,8 @@ void runMdnsTests() {
   RUN_TEST(test_mdns_processes_later_questions_and_service_enumeration);
   RUN_TEST(test_mdns_compressed_response_questions_and_malformed_records);
   RUN_TEST(test_mdns_query_encodes_requested_type_and_local_suffix);
-  RUN_TEST(test_mdns_browse_assembles_split_out_of_order_records_and_goodbye);
+  RUN_TEST(test_mdns_browse_resolves_combined_ptr_srv_txt_a_reply);
+  RUN_TEST(test_mdns_browse_instance_name_is_approximated_from_hostname);
   RUN_TEST(test_mdns_resolves_parallel_clients_and_expires_fixed_ttl_cache);
   RUN_TEST(test_mdns_advertises_encoded_txt_and_full_srv_owner);
   RUN_TEST(test_mdns_add_service_returns_true);

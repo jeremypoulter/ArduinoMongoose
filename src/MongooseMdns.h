@@ -90,17 +90,24 @@ class MongooseMdns
     int _numServices;
 
     MongooseMdnsRequestHandler _onRequest;
+
+    // One entry per browsed service instance. Our own responder (and any
+    // peer running this same library) always answers a PTR query with a
+    // full PTR+SRV+TXT+A chain in one packet -- see handle_mdns_query()'s
+    // "serve PTR + SRV + TXT + A" -- so a single query per browse() call is
+    // enough; there is no per-record reassembly to do across packets.
+    static const int MAX_BROWSE_RECORDS = 32;
     struct BrowseRecord {
-      std::string name, target, txt;
-      mg_addr addr;
-      uint64_t expires;
-      uint16_t type, port;
+      std::string instance;  // Fully qualified service instance
+      std::string hostname;  // SRV target, including .local; empty if unresolved
+      uint16_t port = 0;
+      std::vector<std::pair<std::string, std::string>> txt;
+      std::vector<mg_addr> addresses;
+      uint64_t expires = 0;
     };
     std::vector<BrowseRecord> _records;
-    std::string _browseService;
-    uint64_t _nextQuery;
+    std::string _browseService;  // e.g. "_openevse._tcp", no trailing ".local"
     void handleResponse(const mg_mdns_resp &resp);
-    void pollBrowse();
 
     static void eventHandler(struct mg_connection *nc, int ev, void *ev_data);
     void handleReq(struct mg_connection *nc, struct mg_mdns_req *req);
