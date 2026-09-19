@@ -1,0 +1,16 @@
+# CodeRabbit configuration
+#
+# src/mongoose.c and src/mongoose.h are vendored verbatim from
+# https://github.com/cesanta/mongoose. .github/workflows/update-mongoose.yml
+# re-downloads both files wholesale from upstream on every release, so any
+# review finding, docstring or style change applied to them is discarded on
+# the next bump. Fixes belong upstream, not here.
+#
+# They are excluded from review and from the docstring-coverage check, which
+# otherwise scopes itself to every function the diff touches -- a single mDNS
+# change in mongoose.c pulls ~20 upstream C functions into the denominator and
+# makes the 80% threshold unreachable without hand-editing vendored code.
+reviews:
+  path_filters:
+    - "!src/mongoose.c"
+    - "!src/mongoose.h"

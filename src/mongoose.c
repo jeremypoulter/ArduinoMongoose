@@ -1857,7 +1857,7 @@ static size_t mg_dns_parse_name(const uint8_t *s, size_t n, size_t ofs,
 }
 
 size_t mg_dns_parse_rr(const uint8_t *buf, size_t len, size_t ofs,
-                        bool is_question, struct mg_dns_rr *rr) {
+                       bool is_question, struct mg_dns_rr *rr) {
   const uint8_t *s, *e;
 
   memset(rr, 0, sizeof(*rr));
@@ -2639,10 +2639,10 @@ static void mdns_cb(struct mg_connection *c, int ev, void *ev_data) {
 
 void mg_multicast_add(struct mg_connection *c, char *ip);
 struct mg_connection *mg_mdns_listen(struct mg_mgr *mgr, mg_event_handler_t fn,
-                                      void *fn_data) {
+                                     void *fn_data) {
+  struct mg_connection *c;
   if (mgr->mdns != NULL) return NULL;  // One owner for responder and resolver
-  struct mg_connection *c =
-      mg_listen(mgr, "udp://0.0.0.0:5353", fn, fn_data);
+  c = mg_listen(mgr, "udp://0.0.0.0:5353", fn, fn_data);
   if (c == NULL) return NULL;
   // Bind wildcard to receive QU replies as well as multicast.
   c->mgr->mdns = c;  // Add mDNS entry to enable resolver to use it
@@ -2652,7 +2652,7 @@ struct mg_connection *mg_mdns_listen(struct mg_mgr *mgr, mg_event_handler_t fn,
 }
 
 static bool mdns_query(struct mg_connection *c, struct mg_str *name,
-                        unsigned int rtype) {
+                       unsigned int rtype) {
   uint8_t buf[sizeof(struct mg_dns_header) + 256 + 4] = {0};
   struct mg_dns_header *h = (struct mg_dns_header *) buf;
   size_t i = 0, pos = sizeof(*h);
@@ -2676,7 +2676,7 @@ static bool mdns_query(struct mg_connection *c, struct mg_str *name,
 }
 
 bool mg_mdns_query(struct mg_connection *c, const char *name,
-                    unsigned int rtype) {
+                   unsigned int rtype) {
   struct mg_str name_;
   if (!name) return false;
   name_.buf = (char *) name, name_.len = strlen(name);
@@ -14540,7 +14540,7 @@ void mg_multicast_add(struct mg_connection *c, char *ip) {
   mreq.imr_multiaddr.s_addr = inet_addr(ip);
   mreq.imr_interface.s_addr = mg_htonl(INADDR_ANY);
   setsockopt(FD(c), IPPROTO_IP, IP_ADD_MEMBERSHIP, (char *) &mreq,
-              sizeof(mreq));
+             sizeof(mreq));
   setsockopt(FD(c), IPPROTO_IP, IP_MULTICAST_TTL, (char *) &ttl, sizeof(ttl));
 #endif  // !Zephyr
 #endif  // !lwIP
