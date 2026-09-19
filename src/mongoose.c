@@ -2211,9 +2211,16 @@ static uint8_t *build_txt_record(uint8_t *p, struct mg_dnssd_record *r) {
 static void mdns_multicast_destination(struct mg_connection *c) {
   // A wildcard UDP socket's loc is refreshed by sendto(). It is not the
   // multicast destination, and must never be reused as one after the send.
-  memset(&c->rem, 0, sizeof(c->rem));
-  c->rem.addr.ip4 = MG_IPV4(224, 0, 0, 251);
-  c->rem.port = mg_htons(5353);
+  // mg_multicast_restore() overwrites c->rem wholesale exactly as the plain
+  // assignment did, and additionally maps the IP to its link-layer address
+  // (01:00:5e:00:00:fb) when the built-in TCP/IP stack is in use; without
+  // that, connstate::mac keeps a stale unicast MAC and the frame misses the
+  // multicast group. A no-op difference when MG_ENABLE_TCPIP is 0.
+  struct mg_addr to;
+  memset(&to, 0, sizeof(to));
+  to.addr.ip4 = MG_IPV4(224, 0, 0, 251);
+  to.port = mg_htons(5353);
+  mg_multicast_restore(c, (uint8_t *) &to);
 }
 
 static void handle_mdns_query(struct mg_connection *c, size_t question_offset) {
