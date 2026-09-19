@@ -74,6 +74,7 @@ class MongooseMdns
       uint16_t port;       // TCP/UDP port
     };
 
+    /** @brief Snapshot of one discovered DNS-SD service instance. */
     struct DiscoveredService {
       std::string instance;  // Fully qualified service instance
       std::string hostname;  // SRV target, including .local
@@ -160,7 +161,10 @@ class MongooseMdns
 
     /** @brief Start a non-blocking DNS-SD browse, replacing any previous browse.
      * Poll Mongoose normally, read services(), then cancelBrowse().
-     * Retains at most 80 resource records, with TXT data limited to 1024 bytes.
+     * Each instance comes from one combined PTR+SRV+TXT+A reply; there is no
+     * cross-packet reassembly and no follow-up query for missing records.
+     * Retains at most MAX_BROWSE_RECORDS (32) service instances, each held for
+     * MG_MDNS_CACHE_TTL_MS rather than the record's own TTL.
      */
     bool browse(const char *srvcproto);
     /** @brief Snapshot live DNS-SD results; incomplete instances may lack SRV/TXT/address data. */

@@ -78,11 +78,14 @@ auto peers = Mdns.services();
 Mdns.cancelBrowse();
 ```
 
-Browsing assembles PTR, SRV, TXT and A/AAAA records across packets, including
-additional records, and requests missing records asynchronously. Results carry
-the service instance and SRV hostname separately. Incomplete instances can
-appear before their target/port/addresses arrive. Record TTLs and goodbyes are
-honoured; storage is capped at 80 records and 1024 bytes per received TXT RR.
+Browsing takes each service instance from a single combined PTR+SRV+TXT+A
+reply, which is what this library's own responder always sends. There is no
+cross-packet reassembly and no follow-up query for missing records, so an
+instance whose records are split across packets is not reported. The instance
+name is derived from the SRV target's first label, so two instances of the
+same service type on one host collapse into a single entry. Storage is capped
+at 32 service instances, each held for `MG_MDNS_CACHE_TTL_MS` (5s by default)
+rather than the record's own TTL; goodbye records are not tracked.
 
 The IPv4 `.local` resolver coalesces concurrent queries and caches eight host
 addresses (names up to 63 bytes) using received TTLs. Cold lookups use the
