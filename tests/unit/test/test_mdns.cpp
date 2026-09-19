@@ -201,6 +201,48 @@ static void test_mdns_query_encodes_requested_type_and_local_suffix() {
   TEST_ASSERT_EQUAL_MEMORY(expected.data(), packet.data(), packet.size());
 }
 
+// Round-trip: drive our OWN responder to emit a combined PTR reply, capture
+// the exact bytes it puts on the wire, then feed those bytes to the browse
+// layer. Every other browse test hand-builds the packet it *believes* the
+// responder sends, so the two can drift apart and still both pass. This one
+// cannot: if the responder's real record order or owner names are not what
+// handle_mdns_response()'s chain parser expects, browse() sees nothing and
+// this fails -- which is what four native instances discovering each other
+// actually exercises.
+static void test_mdns_browse_parses_our_own_responders_real_reply() {
+  Packet reply;
+  {
+    ScopedMongoose scope;
+    MongooseMdns responder;
+    TEST_ASSERT_TRUE(responder.begin("peer"));
+    TEST_ASSERT_TRUE(responder.addService("_openevse._tcp", 8443));
+    TEST_ASSERT_TRUE(responder.addServiceTxt("_openevse._tcp", "id", "7"));
+    auto *rx = receiver(reply);
+    TEST_ASSERT_NOT_NULL(rx);
+    auto *c = Mongoose.getMgr()->mdns;
+    c->rem = rx->loc;
+    Packet q(12, 0); q[5] = 1;                 // 1 question
+    auto labels = name("_openevse._tcp.local");
+    q.insert(q.end(), labels.begin(), labels.end());
+    wordBE(q, MG_DNS_RTYPE_PTR); wordBE(q, 0x8001);  // QU so the reply is unicast
+    inject(c, q);
+    TEST_ASSERT_TRUE(pumpUntil([&]() { return !reply.empty(); }));
+  }
+  TEST_ASSERT_TRUE(reply.size() > 12);
+  {
+    ScopedMongoose scope;
+    MongooseMdns browser;
+    TEST_ASSERT_TRUE(browser.begin("unit-browse"));
+    TEST_ASSERT_TRUE(browser.browse("_openevse._tcp"));
+    inject(Mongoose.getMgr()->mdns, reply);
+    auto services = browser.services();
+    TEST_ASSERT_EQUAL(1, services.size());
+    TEST_ASSERT_EQUAL_STRING("peer._openevse._tcp.local", services[0].instance.c_str());
+    TEST_ASSERT_EQUAL_STRING("peer.local", services[0].hostname.c_str());
+    TEST_ASSERT_EQUAL(8443, services[0].port);
+  }
+}
+
 static void test_mdns_browse_resolves_combined_ptr_srv_txt_a_reply() {
   // Our own responder always answers a PTR query with a single combined
   // PTR+SRV+TXT+A reply (see handle_mdns_query()'s "serve PTR + SRV + TXT +
@@ -416,6 +458,7 @@ void runMdnsTests() {
   RUN_TEST(test_mdns_compressed_response_questions_and_malformed_records);
   RUN_TEST(test_mdns_query_encodes_requested_type_and_local_suffix);
   RUN_TEST(test_mdns_browse_resolves_combined_ptr_srv_txt_a_reply);
+  RUN_TEST(test_mdns_browse_parses_our_own_responders_real_reply);
   RUN_TEST(test_mdns_browse_instance_name_is_approximated_from_hostname);
   RUN_TEST(test_mdns_resolves_parallel_clients_and_expires_fixed_ttl_cache);
   RUN_TEST(test_mdns_advertises_encoded_txt_and_full_srv_owner);
