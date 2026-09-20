@@ -46,6 +46,26 @@ struct MongooseMdnsRequest
 };
 
 
+#ifndef MG_MDNS_BROWSE_RETRY_MS
+// Interval between PTR re-queries while a browse() is active and retries
+// remain. A single query can go unanswered -- lost datagram, a peer not
+// listening yet, a peer still inside its own RFC 6762 SS6 one-answer-per-
+// second window for that record -- so browse() resends rather than firing
+// once. Bounded in both rate (this interval) and count
+// (MG_MDNS_BROWSE_MAX_RETRIES) to avoid reviving the unbounded per-poll
+// re-query pollBrowse() used to do before the mDNS reconciliation, which is
+// what re-triggered that same SS6 throttle in the first place.
+#define MG_MDNS_BROWSE_RETRY_MS 1000
+#endif
+
+#ifndef MG_MDNS_BROWSE_MAX_RETRIES
+// Retries stop after this many resends (5 queries total including the
+// first), regardless of whether any reply has been recorded yet. At the
+// default MG_MDNS_BROWSE_RETRY_MS, the last retry fires at 4s, leaving 1s
+// for replies to arrive within a caller's typical 5s browse window.
+#define MG_MDNS_BROWSE_MAX_RETRIES 4
+#endif
+
 /**
  * @brief Arduino-style mDNS wrapper using Mongoose's built-in mDNS API.
  *
@@ -109,7 +129,10 @@ class MongooseMdns
     };
     std::vector<BrowseRecord> _records;
     std::string _browseService;  // e.g. "_openevse._tcp", no trailing ".local"
+    uint64_t _browseNextQuery = 0;   // mg_millis() deadline for the next retry
+    int _browseRetriesLeft = 0;      // remaining resends; 0 once exhausted or cancelled
     void handleResponse(const mg_mdns_resp &resp);
+    void pollBrowse();
 
     static void eventHandler(struct mg_connection *nc, int ev, void *ev_data);
     void handleReq(struct mg_connection *nc, struct mg_mdns_req *req);
@@ -166,6 +189,9 @@ class MongooseMdns
      * Poll Mongoose normally, read services(), then cancelBrowse().
      * Each instance comes from one combined PTR+SRV+TXT+A reply; there is no
      * cross-packet reassembly and no follow-up query for missing records.
+     * The PTR query itself is resent every MG_MDNS_BROWSE_RETRY_MS, up to
+     * MG_MDNS_BROWSE_MAX_RETRIES times, so a peer that misses the first
+     * multicast is still found -- see those constants for why.
      * Retains at most MAX_BROWSE_RECORDS (32) service instances, each held for
      * MG_MDNS_CACHE_TTL_MS rather than the record's own TTL.
      */

@@ -292,6 +292,71 @@ static void test_mdns_browse_resolves_combined_ptr_srv_txt_a_reply() {
   TEST_ASSERT_TRUE(mdns.services().empty());
 }
 
+// The regression this pins: browse() sending its PTR query exactly once
+// left four native firmware instances discovering zero peers of each other
+// in openevse_esp32_firmware#1271's integration suite, because any peer not
+// already listening at that exact instant, or a lost datagram, or a peer
+// still inside its own RFC 6762 SS6 one-answer-per-second window, meant a
+// silent, permanent miss. Measured directly against this branch before the
+// fix: exactly 1 query, none more after a further 3s of polling.
+static void test_mdns_browse_retries_the_ptr_query_a_bounded_number_of_times() {
+  ScopedMongoose scope;
+  MongooseMdns mdns;
+  TEST_ASSERT_TRUE(mdns.begin("unit-retry"));
+
+  static int queries;
+  queries = 0;
+  auto *rx = mg_listen(Mongoose.getMgr(), "udp://224.0.0.251:5353",
+    [](mg_connection *c, int ev, void *) {
+      if (ev == MG_EV_READ) {
+        if (c->recv.len > 12 && c->recv.buf[2] == 0) queries++;  // a query, not a response
+        c->recv.len = 0;
+      }
+    }, nullptr);
+  TEST_ASSERT_NOT_NULL(rx);
+  mg_multicast_add(rx, const_cast<char *>("224.0.0.251"));
+
+  TEST_ASSERT_TRUE(mdns.browse("_openevse._tcp"));
+  TEST_ASSERT_TRUE(pumpUntil([&]() { return queries >= 1; }));
+
+  const int expected = 1 + MG_MDNS_BROWSE_MAX_RETRIES;
+  TEST_ASSERT_TRUE(pumpUntil([&]() { return queries >= expected; },
+                             MG_MDNS_BROWSE_MAX_RETRIES * MG_MDNS_BROWSE_RETRY_MS + 500));
+  TEST_ASSERT_EQUAL(expected, queries);
+
+  // Bounded: no further sends once MG_MDNS_BROWSE_MAX_RETRIES is spent, even
+  // across several more retry intervals -- this is not the unbounded
+  // per-poll re-query pollBrowse() used to do.
+  pumpFor(MG_MDNS_BROWSE_RETRY_MS * 2);
+  TEST_ASSERT_EQUAL(expected, queries);
+}
+
+static void test_mdns_cancel_browse_stops_retries_in_flight() {
+  ScopedMongoose scope;
+  MongooseMdns mdns;
+  TEST_ASSERT_TRUE(mdns.begin("unit-cancel"));
+
+  static int queries;
+  queries = 0;
+  auto *rx = mg_listen(Mongoose.getMgr(), "udp://224.0.0.251:5353",
+    [](mg_connection *c, int ev, void *) {
+      if (ev == MG_EV_READ) {
+        if (c->recv.len > 12 && c->recv.buf[2] == 0) queries++;
+        c->recv.len = 0;
+      }
+    }, nullptr);
+  TEST_ASSERT_NOT_NULL(rx);
+  mg_multicast_add(rx, const_cast<char *>("224.0.0.251"));
+
+  TEST_ASSERT_TRUE(mdns.browse("_openevse._tcp"));
+  TEST_ASSERT_TRUE(pumpUntil([&]() { return queries >= 1; }));
+
+  mdns.cancelBrowse();
+  int afterCancel = queries;
+  pumpFor(MG_MDNS_BROWSE_RETRY_MS * 3);
+  TEST_ASSERT_EQUAL(afterCancel, queries);
+}
+
 static void test_mdns_browse_instance_name_is_approximated_from_hostname() {
   // handle_mdns_response() only gives handleResponse() the resolved SRV
   // target once a combined PTR+SRV reply supplies one -- the PTR's own
@@ -459,6 +524,8 @@ void runMdnsTests() {
   RUN_TEST(test_mdns_query_encodes_requested_type_and_local_suffix);
   RUN_TEST(test_mdns_browse_resolves_combined_ptr_srv_txt_a_reply);
   RUN_TEST(test_mdns_browse_parses_our_own_responders_real_reply);
+  RUN_TEST(test_mdns_browse_retries_the_ptr_query_a_bounded_number_of_times);
+  RUN_TEST(test_mdns_cancel_browse_stops_retries_in_flight);
   RUN_TEST(test_mdns_browse_instance_name_is_approximated_from_hostname);
   RUN_TEST(test_mdns_resolves_parallel_clients_and_expires_fixed_ttl_cache);
   RUN_TEST(test_mdns_advertises_encoded_txt_and_full_srv_owner);

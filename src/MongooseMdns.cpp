@@ -41,6 +41,8 @@ void MongooseMdns::eventHandler(struct mg_connection *nc, int ev, void *ev_data)
     self->handleResponse(*(struct mg_mdns_resp *)ev_data);
   } else if (self && ev == MG_EV_CLOSE) {
     self->_mdns = nullptr;
+  } else if (self && ev == MG_EV_POLL) {
+    self->pollBrowse();
   }
   (void)ev_data;
 }
@@ -277,13 +279,29 @@ bool MongooseMdns::browse(const char *srvcproto)
   if (!_browseService.empty() && _browseService.back() == '.') _browseService.pop_back();
   // query() appends ".local" for the PTR query; _browseService itself stays
   // unsuffixed to match resp.sd.srvcproto, which never carries ".local".
-  return query(_browseService.c_str(), MG_DNS_RTYPE_PTR);
+  bool sent = query(_browseService.c_str(), MG_DNS_RTYPE_PTR);
+  // Arm the retry schedule even if this first send failed (e.g. a transient
+  // send error): the next poll tick will try again rather than leaving the
+  // browse permanently silent.
+  _browseNextQuery = mg_millis() + MG_MDNS_BROWSE_RETRY_MS;
+  _browseRetriesLeft = MG_MDNS_BROWSE_MAX_RETRIES;
+  return sent;
 }
 
 void MongooseMdns::cancelBrowse()
 {
   _browseService.clear();
+  _browseRetriesLeft = 0;
   std::vector<BrowseRecord>().swap(_records);
+}
+
+void MongooseMdns::pollBrowse()
+{
+  if (_browseService.empty() || _browseRetriesLeft <= 0) return;
+  if (mg_millis() < _browseNextQuery) return;
+  _browseRetriesLeft--;
+  _browseNextQuery = mg_millis() + MG_MDNS_BROWSE_RETRY_MS;
+  query(_browseService.c_str(), MG_DNS_RTYPE_PTR);
 }
 
 static std::vector<std::pair<std::string, std::string>> mdnsParseTxt(mg_str raw)
