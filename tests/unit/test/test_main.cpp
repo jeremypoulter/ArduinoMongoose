@@ -13,6 +13,7 @@ void runMqttClientTests();
 void runSntpClientTests();
 void runMdnsTests();
 void runSocketAddressTests();
+void runDnsFailoverTests();
 
 static int runAllTests() {
   UNITY_BEGIN();
@@ -26,6 +27,7 @@ static int runAllTests() {
   runSntpClientTests();
   runMdnsTests();
   runSocketAddressTests();
+  runDnsFailoverTests();
   return UNITY_END();
 }
 

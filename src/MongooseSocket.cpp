@@ -120,6 +120,7 @@ void MongooseSocket::processEvent(mg_connection *nc, int ev, void *p)
     {
       const char *err = (const char *)p;
       DBUGF("MG_EV_ERROR, error = %s", err);
+      Mongoose.dnsError(err);
       onError(nc, err);
       break;
     }
