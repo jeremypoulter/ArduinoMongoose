@@ -34,12 +34,14 @@ class MongooseCore
     // DHCP hands out up to two DNS servers; Mongoose's resolver only talks to
     // one (mgr.dns4). Keep both so a resolve timeout can fail over to the other.
     char _nameserver[MONGOOSE_NAMESERVERS][MONGOOSE_NAMESERVER_LEN];
+    char _active[MONGOOSE_NAMESERVER_LEN];  // what mgr.dns4.url points at
     int _nameserverCount;
     int _activeNameserver;
     uint64_t _lastFailover;
     struct mg_mgr mgr;
 
     void useNameserver(int index);
+    void closeResolver();
 
   public:
     /**
@@ -85,6 +87,9 @@ class MongooseCore
      * the new one. ipConfigChanged() calls this with the DHCP-supplied
      * servers; call it directly on platforms without WiFi/ETH.
      *
+     * With neither given, the resolver keeps the URL it already has (the
+     * mg_mgr_init() default, or the last server set).
+     *
      * @param primary DNS server URL, e.g. "udp://192.168.1.1:53", or NULL
      * @param secondary Fallback DNS server URL, or NULL for none
      */
@@ -93,7 +98,7 @@ class MongooseCore
     /**
      * @brief Get the DNS server currently used for lookups
      *
-     * @return const char* Server URL, or NULL when none is configured
+     * @return const char* Server URL
      */
     const char *nameserver() const;
 

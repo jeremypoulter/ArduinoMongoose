@@ -29,6 +29,7 @@ MongooseCore::MongooseCore() :
   mgr({0})
 {
   memset(_nameserver, 0, sizeof(_nameserver));
+  _active[0] = '\0';
 }
 
 void MongooseCore::begin() 
@@ -101,23 +102,40 @@ void MongooseCore::setNameservers(const char *primary, const char *secondary)
 void MongooseCore::useNameserver(int index)
 {
   _activeNameserver = index;
-  const char *url = index < _nameserverCount ? _nameserver[index] : nullptr;
-  if(url != mgr.dns4.url && mgr.dns4.c) {
-    // mg_dnsc_init() only connects while dns4.c is NULL, so an established
-    // resolver socket would keep talking to the old server for ever. Closing
-    // it also errors every lookup still in flight ("DNS error"), which is
-    // right: they were all waiting on the server being retired. A lookup that
-    // has already failed (the timeout that brought us here) must not be
-    // errored a second time, so drop its request first.
-    for(struct mg_connection *c = mgr.conns; c != nullptr; c = c->next) {
-      if(c->is_closing) {
-        mg_resolve_cancel(c);
-      }
-    }
-    mgr.dns4.c->is_closing = 1;
-    mgr.dns4.c = nullptr;
+  if(index >= _nameserverCount) {
+    // Nothing configured: keep whatever mgr.dns4.url already holds (the
+    // mg_mgr_init() default, or the last server we set). A NULL url would
+    // make the next lookup's mg_dnsc_init() call mg_error(0, ...) and crash.
+    return;
   }
-  mgr.dns4.url = url;
+  // The active URL has its own buffer rather than pointing into the table:
+  // setNameservers() rewrites the table in place, so a pointer compare could
+  // never see a changed primary.
+  if(0 != strcmp(_active, _nameserver[index])) {
+    closeResolver();
+    snprintf(_active, sizeof(_active), "%s", _nameserver[index]);
+  }
+  mgr.dns4.url = _active;
+}
+
+void MongooseCore::closeResolver()
+{
+  if(nullptr == mgr.dns4.c) {
+    return;
+  }
+  // mg_dnsc_init() only connects while dns4.c is NULL, so an established
+  // resolver socket would keep talking to the old server for ever. Closing
+  // it also errors every lookup still in flight ("DNS error"), which is
+  // right: they were all waiting on the server being retired. A lookup that
+  // has already failed (the timeout that brought us here) must not be
+  // errored a second time, so drop its request first.
+  for(struct mg_connection *c = mgr.conns; c != nullptr; c = c->next) {
+    if(c->is_closing) {
+      mg_resolve_cancel(c);
+    }
+  }
+  mgr.dns4.c->is_closing = 1;
+  mgr.dns4.c = nullptr;
 }
 
 const char *MongooseCore::nameserver() const

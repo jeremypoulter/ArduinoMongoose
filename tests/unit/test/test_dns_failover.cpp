@@ -32,11 +32,18 @@ static void test_dns_failover_single_server_never_rotates() {
   TEST_ASSERT_EQUAL_STRING("udp://10.0.0.1:53", Mongoose.nameserver());
 }
 
-static void test_dns_failover_no_servers_is_safe() {
+static void test_dns_failover_no_servers_keeps_existing_url() {
   ScopedMongoose mongoose;
+  // A NULL dns4.url would make mg_dnsc_init() call mg_error(0, ...) on the
+  // next lookup, so "nothing configured" must leave the resolver URL alone.
   Mongoose.setNameservers(nullptr, nullptr);
-  TEST_ASSERT_NULL(Mongoose.nameserver());
+  TEST_ASSERT_NOT_NULL(Mongoose.nameserver());
+  TEST_ASSERT_EQUAL_STRING("udp://8.8.8.8:53", Mongoose.nameserver());  // mg_mgr_init() default
   TEST_ASSERT_FALSE(Mongoose.dnsError("DNS timeout"));
+
+  Mongoose.setNameservers("udp://10.0.0.1:53");
+  Mongoose.setNameservers(nullptr, nullptr);
+  TEST_ASSERT_EQUAL_STRING("udp://10.0.0.1:53", Mongoose.nameserver());
 }
 
 static void test_dns_failover_only_a_timeout_rotates() {
@@ -211,12 +218,66 @@ static void test_dns_failover_end_to_end_via_secondary() {
   TEST_ASSERT_TRUE(live.queries > 0);
 }
 
+// A DHCP renewal that moves the primary: the established resolver socket must
+// be dropped, or mg_dnsc_init() keeps it talking to the retired server.
+static void test_dns_failover_reconfigure_replaces_resolver_socket() {
+  ScopedMongoose mongoose;
+  FakeDns dead, live;
+  TEST_ASSERT_TRUE(dead.begin(false));
+  TEST_ASSERT_TRUE(live.begin(true));
+
+  MongooseHttpServer server;
+  TEST_ASSERT_TRUE(server.begin(18094));
+  server.on("/ping", HTTP_GET, [](MongooseHttpServerRequest *request) {
+    MongooseHttpServerResponseBasic *response = request->beginResponse();
+    response->setCode(200);
+    response->setContent("pong");
+    request->send(response);
+  });
+
+  // Only one server known, and it's dead: the lookup opens the resolver
+  // socket and stalls.
+  Mongoose.setNameservers(dead.url().c_str());
+  Mongoose.getMgr()->dnstimeout = 5000;
+  MongooseHttpClient client;
+  bool closed = false;
+  MongooseHttpClientRequest *request =
+      client.beginRequest("http://reconfig.test:18094/ping");
+  request->onClose([&closed]() { closed = true; });
+  TEST_ASSERT_TRUE(request->send());
+  pumpFor(100, [&dead]() { dead.pump(); });
+  TEST_ASSERT_NOT_NULL(Mongoose.getMgr()->dns4.c);
+  TEST_ASSERT_TRUE(dead.queries > 0);
+
+  // "Lease renewed, different primary": same slot 0, new address.
+  Mongoose.setNameservers(live.url().c_str());
+  TEST_ASSERT_NULL(Mongoose.getMgr()->dns4.c);
+  TEST_ASSERT_EQUAL_STRING(live.url().c_str(), Mongoose.nameserver());
+  // The stalled lookup is failed by the close, not left to its 5 s timeout.
+  TEST_ASSERT_TRUE_MESSAGE(pumpUntil([&closed]() { return closed; }, 1000),
+                           "in-flight lookup not failed on reconfigure");
+
+  // Re-issuing goes to the new server on a fresh socket.
+  Attempt retry;
+  MongooseHttpClientRequest *again =
+      client.beginRequest("http://reconfig.test:18094/ping");
+  again->onResponse([&retry](MongooseHttpClientResponse *response) {
+    retry.code = response->respCode();
+  })->onClose([&retry]() { retry.closed = true; });
+  TEST_ASSERT_TRUE(again->send());
+  TEST_ASSERT_TRUE(pumpUntil([&retry]() { return retry.closed; }, 3000,
+                             [&live]() { live.pump(); }));
+  TEST_ASSERT_EQUAL(200, retry.code);
+  TEST_ASSERT_TRUE(live.queries > 0);
+}
+
 void runDnsFailoverTests() {
   RUN_TEST(test_dns_failover_first_server_is_active);
   RUN_TEST(test_dns_failover_single_server_never_rotates);
-  RUN_TEST(test_dns_failover_no_servers_is_safe);
+  RUN_TEST(test_dns_failover_no_servers_keeps_existing_url);
   RUN_TEST(test_dns_failover_only_a_timeout_rotates);
   RUN_TEST(test_dns_failover_burst_of_timeouts_rotates_once);
   RUN_TEST(test_dns_failover_set_nameservers_resets_to_primary);
   RUN_TEST(test_dns_failover_end_to_end_via_secondary);
+  RUN_TEST(test_dns_failover_reconfigure_replaces_resolver_socket);
 }
