@@ -293,13 +293,16 @@ static void test_mdns_query_encodes_requested_type_and_local_suffix() {
   expected.insert(expected.end(), labels.begin(), labels.end());
   wordBE(expected, MG_DNS_RTYPE_PTR); wordBE(expected, 1);
   TEST_ASSERT_EQUAL(expected.size(), capture.packet.size());
-  TEST_ASSERT_EQUAL_MEMORY(expected.data(), capture.packet.data(), capture.packet.size());
+  TEST_ASSERT_EQUAL_MEMORY(expected.data(), capture.packet.data(), expected.size());
   // sendto() refreshes loc to the wildcard bind address. A second query must
   // still go to the multicast group rather than 0.0.0.0.
   capture.packet.clear();
   TEST_ASSERT_TRUE(mdns.query(capture.service.c_str(), MG_DNS_RTYPE_PTR));
   TEST_ASSERT_TRUE(pumpUntil([&]() { return !capture.packet.empty(); }));
-  TEST_ASSERT_EQUAL_MEMORY(expected.data(), capture.packet.data(), capture.packet.size());
+  // Length first, and compare expected.size() bytes: the capture is whatever
+  // arrived, so using its length as the count would read past expected.
+  TEST_ASSERT_EQUAL(expected.size(), capture.packet.size());
+  TEST_ASSERT_EQUAL_MEMORY(expected.data(), capture.packet.data(), expected.size());
 }
 
 // Round-trip: drive our OWN responder to emit a combined PTR reply, capture
