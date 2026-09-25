@@ -6,6 +6,9 @@
 #include <mongoose.h>
 
 #include <functional>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include "MongooseString.h"
 
@@ -43,6 +46,26 @@ struct MongooseMdnsRequest
 };
 
 
+#ifndef MG_MDNS_BROWSE_RETRY_MS
+// Interval between PTR re-queries while a browse() is active and retries
+// remain. A single query can go unanswered -- lost datagram, a peer not
+// listening yet, a peer still inside its own RFC 6762 SS6 one-answer-per-
+// second window for that record -- so browse() resends rather than firing
+// once. Bounded in both rate (this interval) and count
+// (MG_MDNS_BROWSE_MAX_RETRIES) to avoid reviving the unbounded per-poll
+// re-query pollBrowse() used to do before the mDNS reconciliation, which is
+// what re-triggered that same SS6 throttle in the first place.
+#define MG_MDNS_BROWSE_RETRY_MS 1000
+#endif
+
+#ifndef MG_MDNS_BROWSE_MAX_RETRIES
+// Retries stop after this many resends (5 queries total including the
+// first), regardless of whether any reply has been recorded yet. At the
+// default MG_MDNS_BROWSE_RETRY_MS, the last retry fires at 4s, leaving 1s
+// for replies to arrive within a caller's typical 5s browse window.
+#define MG_MDNS_BROWSE_MAX_RETRIES 4
+#endif
+
 /**
  * @brief Arduino-style mDNS wrapper using Mongoose's built-in mDNS API.
  *
@@ -60,14 +83,24 @@ struct MongooseMdnsRequest
 class MongooseMdns
 {
   public:
-    // Maximum number of services that can be registered
+    /** @brief Maximum number of services that can be registered at once. */
     static const int MAX_SERVICES = 8;
 
-    // A registered DNS-SD service record
+    /** @brief One locally registered DNS-SD service, as advertised. */
     struct ServiceRecord {
       char srvcproto[64];  // e.g. "_http._tcp"
-      char txt[256];       // TXT record content (verbatim)
+      char txt[256];       // Length-prefixed DNS-SD strings
+      size_t txtLength;    // Wire-format length, including string length octets
       uint16_t port;       // TCP/UDP port
+    };
+
+    /** @brief Snapshot of one discovered DNS-SD service instance. */
+    struct DiscoveredService {
+      std::string instance;  // Fully qualified service instance
+      std::string hostname;  // SRV target, including .local
+      std::vector<mg_addr> addresses;
+      std::vector<std::pair<std::string, std::string>> txt;
+      uint16_t port;
     };
 
   private:
@@ -75,16 +108,42 @@ class MongooseMdns
     char *_hostname;
 
     ServiceRecord _services[MAX_SERVICES];
+    mg_dnssd_record _listing[MAX_SERVICES];
     int _numServices;
 
     MongooseMdnsRequestHandler _onRequest;
+
+    // One entry per browsed service instance. Our own responder (and any
+    // peer running this same library) always answers a PTR query with a
+    // full PTR+SRV+TXT+A chain in one packet -- see handle_mdns_query()'s
+    // "serve PTR + SRV + TXT + A" -- so a single query per browse() call is
+    // enough; there is no per-record reassembly to do across packets.
+    static const int MAX_BROWSE_RECORDS = 32;
+    struct BrowseRecord {
+      std::string instance;  // Fully qualified service instance
+      std::string hostname;  // SRV target, including .local; empty if unresolved
+      uint16_t port = 0;
+      std::vector<std::pair<std::string, std::string>> txt;
+      std::vector<mg_addr> addresses;
+      uint64_t expires = 0;
+    };
+    std::vector<BrowseRecord> _records;
+    std::string _browseService;  // e.g. "_openevse._tcp", no trailing ".local"
+    uint64_t _browseNextQuery = 0;   // mg_millis() deadline for the next retry
+    int _browseRetriesLeft = 0;      // remaining resends; 0 once exhausted or cancelled
+    void handleResponse(const mg_mdns_resp &resp);
+    void pollBrowse();
 
     static void eventHandler(struct mg_connection *nc, int ev, void *ev_data);
     void handleReq(struct mg_connection *nc, struct mg_mdns_req *req);
 
   public:
+    /** @brief Construct an inactive responder; call begin() to start it. */
     MongooseMdns();
+    /** @brief Stop the listener, if running, and release browse storage. */
     ~MongooseMdns();
+    MongooseMdns(const MongooseMdns &) = delete;
+    MongooseMdns &operator=(const MongooseMdns &) = delete;
 
     /**
      * @brief Start the mDNS listener and advertise the given hostname.
@@ -98,6 +157,7 @@ class MongooseMdns
     bool begin(const char *hostname);
 
 #ifdef ARDUINO
+    /** @brief Arduino String overload of begin(const char *). */
     bool begin(const String &hostname) {
       return begin(hostname.c_str());
     }
@@ -116,10 +176,30 @@ class MongooseMdns
      *
      * @param srvcproto  Service type and protocol label, e.g. "_http._tcp"
      * @param port       TCP/UDP port
-     * @param txt        Optional TXT record content (verbatim, max 255 bytes)
+     * @param txt        Optional single TXT string (max 255 bytes), encoded by the wrapper
      * @return true if the service was registered (false if MAX_SERVICES reached)
      */
     bool addService(const char *srvcproto, uint16_t port, const char *txt = "");
+    /** @brief Add/update one DNS-SD TXT key, encoded as a separate string.
+     * @return false if the service is absent or the 256-byte TXT budget is exceeded.
+     */
+    bool addServiceTxt(const char *srvcproto, const char *key, const char *value);
+
+    /** @brief Start a non-blocking DNS-SD browse, replacing any previous browse.
+     * Poll Mongoose normally, read services(), then cancelBrowse().
+     * Each instance comes from one combined PTR+SRV+TXT+A reply; there is no
+     * cross-packet reassembly and no follow-up query for missing records.
+     * The PTR query itself is resent every MG_MDNS_BROWSE_RETRY_MS, up to
+     * MG_MDNS_BROWSE_MAX_RETRIES times, so a peer that misses the first
+     * multicast is still found -- see those constants for why.
+     * Retains at most MAX_BROWSE_RECORDS (32) service instances, each held for
+     * MG_MDNS_CACHE_TTL_MS rather than the record's own TTL.
+     */
+    bool browse(const char *srvcproto);
+    /** @brief Snapshot live DNS-SD results; incomplete instances may lack SRV/TXT/address data. */
+    std::vector<DiscoveredService> services() const;
+    /** @brief Stop browsing and release all browse records, keeping the resolver active. */
+    void cancelBrowse();
 
     /**
      * @brief Convenience overload accepting separate protocol and transport.
@@ -135,10 +215,12 @@ class MongooseMdns
     bool addService(const char *protocol, const char *transport, uint16_t port, const char *txt = "");
 
 #ifdef ARDUINO
+    /** @brief Arduino String overload of addService(const char *, uint16_t, const char *). */
     bool addService(const String &srvcproto, uint16_t port, const String &txt = String()) {
       return addService(srvcproto.c_str(), port, txt.length() > 0 ? txt.c_str() : "");
     }
 
+    /** @brief Arduino String overload of addService(const char *, const char *, uint16_t, const char *). */
     bool addService(const String &protocol, const String &transport, uint16_t port, const String &txt = String()) {
       return addService(protocol.c_str(), transport.c_str(), port, txt.length() > 0 ? txt.c_str() : "");
     }
@@ -162,10 +244,12 @@ class MongooseMdns
     bool removeService(const char *protocol, const char *transport);
 
 #ifdef ARDUINO
+    /** @brief Arduino String overload of removeService(const char *). */
     bool removeService(const String &srvcproto) {
       return removeService(srvcproto.c_str());
     }
 
+    /** @brief Arduino String overload of removeService(const char *, const char *). */
     bool removeService(const String &protocol, const String &transport) {
       return removeService(protocol.c_str(), transport.c_str());
     }
@@ -177,13 +261,14 @@ class MongooseMdns
      * The mDNS listener must already be started with begin().
      * Responses are delivered via MG_EV_MDNS_RESP to Mongoose resolver.
      *
-     * @param name   Hostname to query (without .local)
+     * @param name   Hostname or service name, with or without .local
      * @param rtype  DNS record type (default: MG_DNS_RTYPE_A for IPv4)
      * @return true if the query was sent successfully
      */
     bool query(const char *name, unsigned int rtype = MG_DNS_RTYPE_A);
 
 #ifdef ARDUINO
+    /** @brief Arduino String overload of query(const char *, unsigned int). */
     bool query(const String &name, unsigned int rtype = MG_DNS_RTYPE_A) {
       return query(name.c_str(), rtype);
     }

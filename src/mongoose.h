@@ -1310,6 +1310,16 @@ struct timeval {
 #define MG_DATA_SIZE 32  // struct mg_connection :: data size
 #endif
 
+#ifndef MG_MDNS_CACHE_TTL_MS
+// mg_mdns_resp carries no per-record TTL, so mg_mgr::mdns_cache cannot honour
+// a record's real TTL (or evict early on a goodbye); every hit is held for
+// this fixed lifetime instead. It only needs to outlast RFC 6762 SS6's rule
+// that a responder must not repeat a multicast answer within 1s, which is
+// what breaks a client that resolves the same .local name more than once in
+// quick succession (e.g. polling several endpoints on one peer).
+#define MG_MDNS_CACHE_TTL_MS 5000
+#endif
+
 #ifndef MG_MAX_HTTP_HEADERS
 #define MG_MAX_HTTP_HEADERS 30
 #endif
@@ -2353,6 +2363,11 @@ struct mg_mgr {
   uint16_t mqtt_id;             // Packet ID counter for MQTT pub/sub
   void *active_dns_requests;    // Pending DNS queries (internal)
   void *active_mdns_requests;   // Pending mDNS resolver queries (internal)
+  struct {
+    char name[64];
+    struct mg_addr addr;
+    uint64_t expires;
+  } mdns_cache[8];              // Bounded, per-interface-lifetime address cache
   struct mg_timer *timers;      // Linked list of active timers
   int epoll_fd;                 // epoll file descriptor; -1 when unused (MG_EPOLL_ENABLE=1)
   struct mg_tcpip_if *ifp;      // Builtin TCP/IP stack: network interface pointer
@@ -4194,6 +4209,8 @@ struct mg_mdns_req {
   struct mg_str reqname;        // Queried hostname, without the .local suffix
   struct mg_str respname;       // Hostname to use in response; defaults to fn_data if empty
   struct mg_addr *addr;         // IP address for A record; uses local interface if NULL
+  struct mg_dnssd_record *listing;  // Service types for a DNS-SD enumeration reply
+  size_t listing_count;
   bool is_listing;  // True if this is a service-discovery listing (_services._dns-sd._udp)
   bool is_resp;     // Set to true in the handler to trigger a response
   bool is_unicast;  // True if the client requested a unicast (QU) response

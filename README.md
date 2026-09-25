@@ -59,6 +59,47 @@ ArduinoMongoose does not add a wrapper-specific runtime RNG override API, which
 keeps future Mongoose updates straightforward without patching vendored
 `mongoose.c` / `mongoose.h`.
 
+## mDNS and DNS-SD
+
+`Mdns` owns one Mongoose listener for both advertising and `.local` client
+resolution. Start it **after the network interface is up**, and call `begin()`
+again and re-register services after an interface/IP change. `end()` cancels
+pending lookups and clears the address cache. Do not run a platform mDNS
+responder on the same interface alongside it (disable ArduinoOTA's built-in
+mDNS with `ArduinoOTA.setMdnsEnabled(false)` when using that library).
+
+```cpp
+Mdns.begin("mydevice");
+Mdns.addService("_http._tcp", 80);
+Mdns.addServiceTxt("_http._tcp", "version", "1");
+Mdns.browse("_http._tcp");
+// Continue Mongoose.poll() normally. After your application's browse window:
+auto peers = Mdns.services();
+Mdns.cancelBrowse();
+```
+
+Browsing takes each service instance from a single combined PTR+SRV+TXT+A
+reply, which is what this library's own responder always sends. There is no
+cross-packet reassembly and no follow-up query for missing records, so an
+instance whose records are split across packets is not reported. The instance
+name is derived from the SRV target's first label, so two instances of the
+same service type on one host collapse into a single entry. Storage is capped
+at 32 service instances, each held for `MG_MDNS_CACHE_TTL_MS` (5s by default)
+rather than the record's own TTL; goodbye records are not tracked.
+
+The IPv4 `.local` resolver coalesces concurrent queries and caches eight host
+addresses (names up to 63 bytes) using received TTLs. Cold lookups use the
+manager's configured DNS timeout. URLs remain intact, preserving HTTP Host and
+TLS server names. `addService()`'s optional TXT argument is a single **text**
+string; use `addServiceTxt()` for multiple keys. `ServiceRecord::txt` now holds
+wire-format length-prefixed strings; use `txtLength`, not `strlen()`.
+
+See [`examples/mdns_discovery`](examples/mdns_discovery) for a native example.
+
+Run the packet and lifecycle regressions with `pio test -e native_mdns_asan`
+in `tests/unit` to enable address, undefined-behaviour and leak sanitizers for
+the mDNS suite, or `pio test -e native` for all library unit tests.
+
 ## Documentation
 
 - [API Reference](docs/API_REFERENCE.md)
