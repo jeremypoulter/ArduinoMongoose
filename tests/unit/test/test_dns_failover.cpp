@@ -37,7 +37,14 @@ static void test_dns_failover_no_servers_keeps_existing_url() {
   ScopedMongoose mongoose;
   // A NULL dns4.url would make mg_dnsc_init() call mg_error(0, ...) on the
   // next lookup, so "nothing configured" must leave the resolver URL alone.
+  //
+  // Mongoose is a global, so an earlier test's servers are still configured
+  // here: clear them and restart, because begin() now deliberately restores a
+  // configured server (test_dns_failover_begin_keeps_the_configured_server)
+  // and only falls through to mg_mgr_init()'s default when there is none.
   Mongoose.setNameservers(nullptr, 0);
+  Mongoose.end();
+  Mongoose.begin();
   TEST_ASSERT_NOT_NULL(Mongoose.nameserver());
   TEST_ASSERT_EQUAL_STRING("udp://8.8.8.8:53", Mongoose.nameserver());  // mg_mgr_init() default
   TEST_ASSERT_FALSE(Mongoose.dnsError("DNS timeout"));
@@ -337,6 +344,77 @@ static void test_dns_failover_reconfigure_replaces_resolver_socket() {
   TEST_ASSERT_TRUE(live.queries > 0);
 }
 
+static void test_dns_failover_begin_keeps_the_configured_server() {
+  // mg_mgr_init() resets dns4.url to its own default, and ipConfigChanged()
+  // only restores it where WiFi/ETH exist -- on this build its body compiles
+  // away entirely. So a server set before begin(), or kept across a restart,
+  // used to be silently replaced by the built-in default.
+  ScopedMongoose mongoose;
+  Mongoose.setNameserver("udp://10.0.0.9:53");
+  TEST_ASSERT_EQUAL_STRING("udp://10.0.0.9:53", Mongoose.nameserver());
+
+  Mongoose.end();
+  Mongoose.begin();
+  TEST_ASSERT_EQUAL_STRING("udp://10.0.0.9:53", Mongoose.nameserver());
+
+  // Nothing configured still leaves mg_mgr_init()'s default alone, rather
+  // than a NULL url that would make the next lookup mg_error(0, ...).
+  Mongoose.setNameservers(nullptr, 0);
+  Mongoose.end();
+  Mongoose.begin();
+  TEST_ASSERT_NOT_NULL(Mongoose.nameserver());
+}
+
+static void test_dns_failover_reconfigure_does_not_fail_the_next_lookup() {
+  // The old resolver socket is not gone when closeResolver() returns: it sits
+  // in mgr.conns until the next poll, and dns_cb()'s MG_EV_CLOSE fails EVERY
+  // entry in the manager-wide active_dns_requests list. A lookup started in
+  // that window belongs to the replacement resolver but joins the same list,
+  // so the old socket closing would kill it.
+  //
+  // Reproduced by issuing the second request with no poll in between, which
+  // is what an onError handler reconnecting does.
+  ScopedMongoose mongoose;
+  FakeDns dead, live;
+  TEST_ASSERT_TRUE(dead.begin(false));
+  TEST_ASSERT_TRUE(live.begin(true));
+
+  MongooseHttpServer server;
+  TEST_ASSERT_TRUE(server.begin(18095));
+  server.on("/ping", HTTP_GET, [](MongooseHttpServerRequest *request) {
+    MongooseHttpServerResponseBasic *response = request->beginResponse();
+    response->setCode(200);
+    response->setContent("pong");
+    request->send(response);
+  });
+
+  Mongoose.setNameserver(dead.url().c_str());
+  Mongoose.getMgr()->dnstimeout = 5000;
+  MongooseHttpClient client;
+  MongooseHttpClientRequest *stalled =
+      client.beginRequest("http://window.test:18095/ping");
+  TEST_ASSERT_TRUE(stalled->send());
+  pumpFor(100, [&dead]() { dead.pump(); });
+  TEST_ASSERT_NOT_NULL(Mongoose.getMgr()->dns4.c);
+
+  // Reconfigure and re-issue in the same breath: no poll runs in between, so
+  // the retired socket is still queued for close when the new lookup starts.
+  Mongoose.setNameserver(live.url().c_str());
+  Attempt retry;
+  MongooseHttpClientRequest *again =
+      client.beginRequest("http://window.test:18095/ping");
+  again->onResponse([&retry](MongooseHttpClientResponse *response) {
+    retry.code = response->respCode();
+  })->onClose([&retry]() { retry.closed = true; });
+  TEST_ASSERT_TRUE(again->send());
+
+  TEST_ASSERT_TRUE(pumpUntil([&retry]() { return retry.closed; }, 3000,
+                             [&live]() { live.pump(); }));
+  TEST_ASSERT_EQUAL_MESSAGE(200, retry.code,
+                            "lookup started before the old resolver finished "
+                            "closing was failed by that close");
+}
+
 void runDnsFailoverTests() {
   RUN_TEST(test_dns_failover_first_server_is_active);
   RUN_TEST(test_dns_failover_single_server_never_rotates);
@@ -349,4 +427,6 @@ void runDnsFailoverTests() {
   RUN_TEST(test_dns_failover_keeps_at_most_the_configured_maximum);
   RUN_TEST(test_dns_failover_end_to_end_via_secondary);
   RUN_TEST(test_dns_failover_reconfigure_replaces_resolver_socket);
+  RUN_TEST(test_dns_failover_begin_keeps_the_configured_server);
+  RUN_TEST(test_dns_failover_reconfigure_does_not_fail_the_next_lookup);
 }

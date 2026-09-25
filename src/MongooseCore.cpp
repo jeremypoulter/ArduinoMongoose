@@ -37,6 +37,14 @@ void MongooseCore::begin()
   mg_mgr_init(&mgr);
 
   ipConfigChanged();
+
+  // mg_mgr_init() resets dns4.url to its own default, and ipConfigChanged()
+  // only puts it back on platforms with WiFi/ETH -- everywhere else its body
+  // compiles away. Without this, servers set before begin(), or kept across an
+  // end()/begin(), are silently dropped and lookups go to the built-in
+  // default. useNameserver() is a no-op when nothing is configured, which
+  // leaves the default in place as before.
+  useNameserver(_activeNameserver);
 }
 
 void MongooseCore::end() 
@@ -139,17 +147,36 @@ void MongooseCore::closeResolver()
   if(nullptr == mgr.dns4.c) {
     return;
   }
+
   // mg_dnsc_init() only connects while dns4.c is NULL, so an established
-  // resolver socket would keep talking to the old server for ever. Closing
-  // it also errors every lookup still in flight ("DNS error"), which is
-  // right: they were all waiting on the server being retired. A lookup that
-  // has already failed (the timeout that brought us here) must not be
-  // errored a second time, so drop its request first.
+  // resolver socket would keep talking to the old server for ever.
+  //
+  // Every lookup still in flight was waiting on the server being retired, so
+  // all of them should fail now and let their owners retry against the
+  // replacement. Do that here, explicitly, rather than leaving it to the old
+  // socket's close: dns_cb()'s MG_EV_CLOSE fails *every* entry in the
+  // manager-wide active_dns_requests list, and that close is deferred to the
+  // next mg_mgr_poll(). A lookup started in between -- by an onError handler
+  // reconnecting, say -- goes to the freshly created replacement resolver but
+  // joins the same shared list, and would then be failed by the old socket
+  // finally closing. Detaching pfn makes that deferred close inert.
+  //
+  // A lookup that has already failed (the timeout that brought us here) must
+  // not be errored twice, hence the is_closing check; cancelling drops its
+  // request either way so nothing is left for the list walk to find.
   for(struct mg_connection *c = mgr.conns; c != nullptr; c = c->next) {
+    if(c == mgr.dns4.c) {
+      continue;
+    }
+    if(c->is_resolving && !c->is_closing) {
+      mg_error(c, "DNS error");
+    }
     if(c->is_closing) {
       mg_resolve_cancel(c);
     }
   }
+
+  mgr.dns4.c->pfn = nullptr;
   mgr.dns4.c->is_closing = 1;
   mgr.dns4.c = nullptr;
 }
