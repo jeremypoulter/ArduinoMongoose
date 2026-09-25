@@ -186,13 +186,24 @@ mg_connection *receiver(Packet &packet) {
 // counter matches on that name as well, so a stray datagram is ignored even
 // if one does arrive. It also stops the suite advertising a bogus
 // "_openevse._tcp" responder onto the real network while it runs.
-// mg_millis() rather than getpid(): this file is also compiled for the
-// esp32_test build, where there are no processes.
+// The counter alone is not enough: anything else running this suite on the
+// same group at the same time would generate the same names and count our
+// queries as its own. That is not only two processes on this host -- the ports
+// the HTTP tests bind rule that out anyway -- but two people running the suite
+// on the same network, where a PID or an uptime is just as likely to collide.
+//
+// So the per-run part is random rather than derived from the host, drawn once.
+// mg_random() is the library's own portable source and works on both the
+// native and esp32_test builds.
 std::string uniqueService() {
+  static uint32_t run = 0;
   static int n = 0;
+  if (0 == run) {
+    mg_random(&run, sizeof(run));
+    run |= 1;  // 0 means "not drawn yet"
+  }
   char buf[64];
-  snprintf(buf, sizeof(buf), "_amtest%lu-%d._tcp",
-           (unsigned long) (mg_millis() & 0xffffff), ++n);
+  snprintf(buf, sizeof(buf), "_amtest%lx-%d._tcp", (unsigned long) run, ++n);
   return buf;
 }
 
@@ -222,6 +233,30 @@ struct QueryCounter {
   int count;
 };
 
+// Same idea for the test that wants the query's bytes rather than a count.
+struct QueryCapture {
+  std::string service;
+  Packet packet;
+};
+
+// Joins the group and keeps the first query for capture.service.
+mg_connection *queryCapture(QueryCapture &capture) {
+  auto *rx = mg_listen(Mongoose.getMgr(), "udp://224.0.0.251:5353",
+    [](mg_connection *c, int ev, void *) {
+      if (ev == MG_EV_READ) {
+        auto &q = *static_cast<QueryCapture *>(c->fn_data);
+        if (isQueryFor(c, q.service)) {
+          q.packet.assign(c->recv.buf, c->recv.buf + c->recv.len);
+        }
+        c->recv.len = 0;
+      }
+    }, &capture);
+  if (rx) {
+    mg_multicast_add(rx, const_cast<char *>("224.0.0.251"));
+  }
+  return rx;
+}
+
 // Joins the group and counts only the queries for counter.service.
 mg_connection *queryCounter(QueryCounter &counter) {
   auto *rx = mg_listen(Mongoose.getMgr(), "udp://224.0.0.251:5353",
@@ -245,37 +280,26 @@ static void test_mdns_query_encodes_requested_type_and_local_suffix() {
   ScopedMongoose scope;
   MongooseMdns mdns;
   TEST_ASSERT_TRUE(mdns.begin("unit-query"));
-  Packet packet;
-  // Filtered the same way as the counters above: this compares the captured
-  // bytes against an exact expected packet, so capturing a passing stranger's
-  // query off the group would fail it.
-  auto *rx = mg_listen(Mongoose.getMgr(), "udp://224.0.0.251:5353",
-    [](mg_connection *c, int ev, void *) {
-      if (ev == MG_EV_READ) {
-        if (isQueryFor(c, "_unit-query._tcp")) {
-          auto &p = *static_cast<Packet *>(c->fn_data);
-          p.assign(c->recv.buf, c->recv.buf + c->recv.len);
-        }
-        c->recv.len = 0;
-      }
-    }, &packet);
-  TEST_ASSERT_NOT_NULL(rx);
-  mg_multicast_add(rx, const_cast<char *>("224.0.0.251"));
-  TEST_ASSERT_TRUE(mdns.query("_unit-query._tcp", MG_DNS_RTYPE_PTR));
-  TEST_ASSERT_TRUE(pumpUntil([&]() { return !packet.empty(); }));
+  // A generated name, like the counters above: this compares the captured
+  // bytes against an exact expected packet, so capturing anyone else's query
+  // off the group -- another host, or a second test process -- would fail it.
+  QueryCapture capture{uniqueService(), Packet()};
+  TEST_ASSERT_NOT_NULL(queryCapture(capture));
+  TEST_ASSERT_TRUE(mdns.query(capture.service.c_str(), MG_DNS_RTYPE_PTR));
+  TEST_ASSERT_TRUE(pumpUntil([&]() { return !capture.packet.empty(); }));
   Packet expected(12, 0);
   expected[5] = 1;
-  auto labels = name("_unit-query._tcp.local");
+  auto labels = name((capture.service + ".local").c_str());
   expected.insert(expected.end(), labels.begin(), labels.end());
   wordBE(expected, MG_DNS_RTYPE_PTR); wordBE(expected, 1);
-  TEST_ASSERT_EQUAL(expected.size(), packet.size());
-  TEST_ASSERT_EQUAL_MEMORY(expected.data(), packet.data(), packet.size());
+  TEST_ASSERT_EQUAL(expected.size(), capture.packet.size());
+  TEST_ASSERT_EQUAL_MEMORY(expected.data(), capture.packet.data(), capture.packet.size());
   // sendto() refreshes loc to the wildcard bind address. A second query must
   // still go to the multicast group rather than 0.0.0.0.
-  packet.clear();
-  TEST_ASSERT_TRUE(mdns.query("_unit-query._tcp", MG_DNS_RTYPE_PTR));
-  TEST_ASSERT_TRUE(pumpUntil([&]() { return !packet.empty(); }));
-  TEST_ASSERT_EQUAL_MEMORY(expected.data(), packet.data(), packet.size());
+  capture.packet.clear();
+  TEST_ASSERT_TRUE(mdns.query(capture.service.c_str(), MG_DNS_RTYPE_PTR));
+  TEST_ASSERT_TRUE(pumpUntil([&]() { return !capture.packet.empty(); }));
+  TEST_ASSERT_EQUAL_MEMORY(expected.data(), capture.packet.data(), capture.packet.size());
 }
 
 // Round-trip: drive our OWN responder to emit a combined PTR reply, capture
