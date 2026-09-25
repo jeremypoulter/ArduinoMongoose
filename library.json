@@ -24,6 +24,13 @@
       ]
     },
     {
+      "name": "mdns_discovery",
+      "base": "examples/mdns_discovery",
+      "files": [
+        "src/main.cpp"
+      ]
+    },
+    {
       "name": "native_upload_http_server",
       "base": "examples/native_upload_http_server",
       "files": [
@@ -87,7 +94,7 @@
       ]
     }
   ],
-  "version": "1.0.0",
+  "version": "1.1.0",
   "frameworks": "*",
   "platforms": "espressif32,espressif8266,native,windows_x86",
   "dependencies": [
