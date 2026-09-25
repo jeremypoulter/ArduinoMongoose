@@ -15,19 +15,20 @@
 
 #include "test_support.h"
 
-// DNS failover: DHCP hands out two servers, Mongoose's resolver talks to one.
-// MongooseCore keeps both and rotates on a resolve timeout, so the next lookup
-// goes to the server that is still answering.
+// DNS failover: DHCP hands out more than one server, Mongoose's resolver talks
+// to one. MongooseCore keeps up to MONGOOSE_NAMESERVERS of them and rotates on
+// a resolve timeout, so the next lookup goes to a server that still answers.
 
 static void test_dns_failover_first_server_is_active() {
   ScopedMongoose mongoose;
-  Mongoose.setNameservers("udp://10.0.0.1:53", "udp://10.0.0.2:53");
+  static const char *servers[] = {"udp://10.0.0.1:53", "udp://10.0.0.2:53"};
+  Mongoose.setNameservers(servers, 2);
   TEST_ASSERT_EQUAL_STRING("udp://10.0.0.1:53", Mongoose.nameserver());
 }
 
 static void test_dns_failover_single_server_never_rotates() {
   ScopedMongoose mongoose;
-  Mongoose.setNameservers("udp://10.0.0.1:53");
+  Mongoose.setNameserver("udp://10.0.0.1:53");
   TEST_ASSERT_FALSE(Mongoose.dnsError("DNS timeout"));
   TEST_ASSERT_EQUAL_STRING("udp://10.0.0.1:53", Mongoose.nameserver());
 }
@@ -36,19 +37,20 @@ static void test_dns_failover_no_servers_keeps_existing_url() {
   ScopedMongoose mongoose;
   // A NULL dns4.url would make mg_dnsc_init() call mg_error(0, ...) on the
   // next lookup, so "nothing configured" must leave the resolver URL alone.
-  Mongoose.setNameservers(nullptr, nullptr);
+  Mongoose.setNameservers(nullptr, 0);
   TEST_ASSERT_NOT_NULL(Mongoose.nameserver());
   TEST_ASSERT_EQUAL_STRING("udp://8.8.8.8:53", Mongoose.nameserver());  // mg_mgr_init() default
   TEST_ASSERT_FALSE(Mongoose.dnsError("DNS timeout"));
 
-  Mongoose.setNameservers("udp://10.0.0.1:53");
-  Mongoose.setNameservers(nullptr, nullptr);
+  Mongoose.setNameserver("udp://10.0.0.1:53");
+  Mongoose.setNameservers(nullptr, 0);
   TEST_ASSERT_EQUAL_STRING("udp://10.0.0.1:53", Mongoose.nameserver());
 }
 
 static void test_dns_failover_only_a_timeout_rotates() {
   ScopedMongoose mongoose;
-  Mongoose.setNameservers("udp://10.0.0.1:53", "udp://10.0.0.2:53");
+  static const char *servers[] = {"udp://10.0.0.1:53", "udp://10.0.0.2:53"};
+  Mongoose.setNameservers(servers, 2);
   // NXDOMAIN is an answer; a closed resolver socket is not a server fault.
   TEST_ASSERT_FALSE(Mongoose.dnsError("example.com DNS lookup failed"));
   TEST_ASSERT_FALSE(Mongoose.dnsError("DNS error"));
@@ -62,7 +64,8 @@ static void test_dns_failover_only_a_timeout_rotates() {
 
 static void test_dns_failover_burst_of_timeouts_rotates_once() {
   ScopedMongoose mongoose;
-  Mongoose.setNameservers("udp://10.0.0.1:53", "udp://10.0.0.2:53");
+  static const char *servers[] = {"udp://10.0.0.1:53", "udp://10.0.0.2:53"};
+  Mongoose.setNameservers(servers, 2);
   Mongoose.getMgr()->dnstimeout = 200;
 
   // Three lookups stalled on the same dead server report within the window:
@@ -80,13 +83,70 @@ static void test_dns_failover_burst_of_timeouts_rotates_once() {
 
 static void test_dns_failover_set_nameservers_resets_to_primary() {
   ScopedMongoose mongoose;
-  Mongoose.setNameservers("udp://10.0.0.1:53", "udp://10.0.0.2:53");
+  static const char *servers[] = {"udp://10.0.0.1:53", "udp://10.0.0.2:53"};
+  Mongoose.setNameservers(servers, 2);
   TEST_ASSERT_TRUE(Mongoose.dnsError("DNS timeout"));
   TEST_ASSERT_EQUAL_STRING("udp://10.0.0.2:53", Mongoose.nameserver());
 
   // ipConfigChanged() path: a fresh DHCP lease starts over on its primary.
-  Mongoose.setNameservers("udp://10.0.0.3:53", "udp://10.0.0.4:53");
+  static const char *fresh[] = {"udp://10.0.0.3:53", "udp://10.0.0.4:53"};
+  Mongoose.setNameservers(fresh, 2);
   TEST_ASSERT_EQUAL_STRING("udp://10.0.0.3:53", Mongoose.nameserver());
+}
+
+static void test_dns_failover_rotates_through_three_servers() {
+  ScopedMongoose mongoose;
+  static const char *servers[] = {"udp://10.0.0.1:53", "udp://10.0.0.2:53",
+                                  "udp://10.0.0.3:53"};
+  Mongoose.setNameservers(servers, 3);
+  Mongoose.getMgr()->dnstimeout = 1;
+
+  // Rotation walks the whole list in order and wraps, rather than toggling
+  // between the first two.
+  TEST_ASSERT_EQUAL_STRING("udp://10.0.0.1:53", Mongoose.nameserver());
+  for(int i = 0; i < 2; i++) {
+    pumpFor(5);
+    TEST_ASSERT_TRUE(Mongoose.dnsError("DNS timeout"));
+    TEST_ASSERT_EQUAL_STRING("udp://10.0.0.2:53", Mongoose.nameserver());
+    pumpFor(5);
+    TEST_ASSERT_TRUE(Mongoose.dnsError("DNS timeout"));
+    TEST_ASSERT_EQUAL_STRING("udp://10.0.0.3:53", Mongoose.nameserver());
+    pumpFor(5);
+    TEST_ASSERT_TRUE(Mongoose.dnsError("DNS timeout"));
+    TEST_ASSERT_EQUAL_STRING("udp://10.0.0.1:53", Mongoose.nameserver());
+  }
+}
+
+static void test_dns_failover_skips_null_and_empty_entries() {
+  ScopedMongoose mongoose;
+  // A partly filled array is the normal case: ipConfigChanged() leaves the
+  // trailing slots NULL when DHCP supplied fewer servers than we track.
+  static const char *servers[] = {nullptr, "", "udp://10.0.0.7:53", nullptr,
+                                  "udp://10.0.0.8:53"};
+  Mongoose.setNameservers(servers, 5);
+  TEST_ASSERT_EQUAL_STRING("udp://10.0.0.7:53", Mongoose.nameserver());
+  TEST_ASSERT_TRUE(Mongoose.dnsError("DNS timeout"));
+  TEST_ASSERT_EQUAL_STRING("udp://10.0.0.8:53", Mongoose.nameserver());
+}
+
+static void test_dns_failover_keeps_at_most_the_configured_maximum() {
+  ScopedMongoose mongoose;
+  // More servers than the table holds: the extras are dropped, and rotation
+  // stays inside the table rather than reading past it.
+  static const char *servers[] = {"udp://10.0.1.1:53", "udp://10.0.1.2:53",
+                                  "udp://10.0.1.3:53", "udp://10.0.1.4:53",
+                                  "udp://10.0.1.5:53"};
+  Mongoose.setNameservers(servers, 5);
+  Mongoose.getMgr()->dnstimeout = 1;
+
+  char expected[32];
+  for(int i = 0; i < MONGOOSE_NAMESERVERS + 1; i++) {
+    snprintf(expected, sizeof(expected), "udp://10.0.1.%d:53",
+             (i % MONGOOSE_NAMESERVERS) + 1);
+    TEST_ASSERT_EQUAL_STRING(expected, Mongoose.nameserver());
+    pumpFor(5);
+    TEST_ASSERT_TRUE(Mongoose.dnsError("DNS timeout"));
+  }
 }
 
 // --- End to end -------------------------------------------------------------
@@ -172,7 +232,13 @@ static void test_dns_failover_end_to_end_via_secondary() {
   TEST_ASSERT_TRUE(dead.begin(false));
   TEST_ASSERT_TRUE(live.begin(true));
 
-  Mongoose.setNameservers(dead.url().c_str(), live.url().c_str());
+  // url() returns by value, so the strings must outlive the array: building
+  // it straight from .c_str() temporaries leaves two dangling pointers by the
+  // time setNameservers() reads them.
+  const std::string deadUrl = dead.url();
+  const std::string liveUrl = live.url();
+  const char *servers[] = {deadUrl.c_str(), liveUrl.c_str()};
+  Mongoose.setNameservers(servers, 2);
   Mongoose.getMgr()->dnstimeout = 200;
 
   MongooseHttpServer server;
@@ -237,7 +303,7 @@ static void test_dns_failover_reconfigure_replaces_resolver_socket() {
 
   // Only one server known, and it's dead: the lookup opens the resolver
   // socket and stalls.
-  Mongoose.setNameservers(dead.url().c_str());
+  Mongoose.setNameserver(dead.url().c_str());
   Mongoose.getMgr()->dnstimeout = 5000;
   MongooseHttpClient client;
   bool closed = false;
@@ -250,7 +316,7 @@ static void test_dns_failover_reconfigure_replaces_resolver_socket() {
   TEST_ASSERT_TRUE(dead.queries > 0);
 
   // "Lease renewed, different primary": same slot 0, new address.
-  Mongoose.setNameservers(live.url().c_str());
+  Mongoose.setNameserver(live.url().c_str());
   TEST_ASSERT_NULL(Mongoose.getMgr()->dns4.c);
   TEST_ASSERT_EQUAL_STRING(live.url().c_str(), Mongoose.nameserver());
   // The stalled lookup is failed by the close, not left to its 5 s timeout.
@@ -278,6 +344,9 @@ void runDnsFailoverTests() {
   RUN_TEST(test_dns_failover_only_a_timeout_rotates);
   RUN_TEST(test_dns_failover_burst_of_timeouts_rotates_once);
   RUN_TEST(test_dns_failover_set_nameservers_resets_to_primary);
+  RUN_TEST(test_dns_failover_rotates_through_three_servers);
+  RUN_TEST(test_dns_failover_skips_null_and_empty_entries);
+  RUN_TEST(test_dns_failover_keeps_at_most_the_configured_maximum);
   RUN_TEST(test_dns_failover_end_to_end_via_secondary);
   RUN_TEST(test_dns_failover_reconfigure_replaces_resolver_socket);
 }

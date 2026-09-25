@@ -71,32 +71,48 @@ void MongooseCore::ipConfigChanged()
 #endif
   char url[MONGOOSE_NAMESERVERS][MONGOOSE_NAMESERVER_LEN];
   const char *urls[MONGOOSE_NAMESERVERS] = {nullptr};
-  int n = 0;
+  IPAddress kept[MONGOOSE_NAMESERVERS];
+  size_t n = 0;
   for(int i = 0; i < MONGOOSE_NAMESERVERS; i++) {
-    if(0 == dns[i] || (n > 0 && dns[i] == dns[0])) {
+    if(0 == dns[i]) {
+      continue;
+    }
+    // Drop duplicates against everything kept so far, not just the first:
+    // an interface reporting the same resolver in two slots would otherwise
+    // get a "failover" that lands straight back on the server that timed out.
+    bool seen = false;
+    for(size_t j = 0; j < n && !seen; j++) {
+      seen = (kept[j] == dns[i]);
+    }
+    if(seen) {
       continue;
     }
     snprintf(url[n], sizeof(url[n]), "udp://%s:53", dns[i].toString().c_str());
     urls[n] = url[n];
+    kept[n] = dns[i];
     n++;
   }
-  setNameservers(urls[0], urls[1]);
+  setNameservers(urls, n);
 #endif
 #endif // ARDUINO
 }
 
-void MongooseCore::setNameservers(const char *primary, const char *secondary)
+void MongooseCore::setNameservers(const char *const *servers, size_t count)
 {
-  const char *urls[MONGOOSE_NAMESERVERS] = {primary, secondary};
   _nameserverCount = 0;
-  for(int i = 0; i < MONGOOSE_NAMESERVERS; i++) {
-    if(urls[i] && urls[i][0]) {
-      snprintf(_nameserver[_nameserverCount], MONGOOSE_NAMESERVER_LEN, "%s", urls[i]);
+  for(size_t i = 0; i < count && _nameserverCount < MONGOOSE_NAMESERVERS; i++) {
+    if(nullptr != servers && servers[i] && servers[i][0]) {
+      snprintf(_nameserver[_nameserverCount], MONGOOSE_NAMESERVER_LEN, "%s", servers[i]);
       _nameserverCount++;
     }
   }
   _lastFailover = 0;
   useNameserver(0);
+}
+
+void MongooseCore::setNameserver(const char *server)
+{
+  setNameservers(&server, 1);
 }
 
 void MongooseCore::useNameserver(int index)

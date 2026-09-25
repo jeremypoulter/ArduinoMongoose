@@ -16,8 +16,16 @@ typedef std::function<const char *(void)> ArduinoMongooseGetRootCaCallback;
 /** @brief Enough for the longest IPv6 text form plus its terminator */
 #define MONGOOSE_ADDRESS_LEN 46
 
-/** @brief How many DNS servers MongooseCore tracks for failover */
-#define MONGOOSE_NAMESERVERS 2
+/**
+ * @brief How many DNS servers MongooseCore tracks for failover
+ *
+ * lwIP's own resolver keeps DNS_MAX_SERVERS (3 on ESP32), and DHCP commonly
+ * hands out two, so three covers the platforms this runs on with room for a
+ * statically configured extra. Override it if you need more.
+ */
+#ifndef MONGOOSE_NAMESERVERS
+#define MONGOOSE_NAMESERVERS 3
+#endif
 /** @brief Room for "udp://[<ipv6>]:53" plus terminator */
 #define MONGOOSE_NAMESERVER_LEN (MONGOOSE_ADDRESS_LEN + 12)
 
@@ -31,8 +39,8 @@ class MongooseCore
   private:
     const char *_rootCa;
     ArduinoMongooseGetRootCaCallback _rootCaCallback;
-    // DHCP hands out up to two DNS servers; Mongoose's resolver only talks to
-    // one (mgr.dns4). Keep both so a resolve timeout can fail over to the other.
+    // DHCP hands out more than one DNS server; Mongoose's resolver only talks
+    // to one (mgr.dns4). Keep them all so a resolve timeout can fail over.
     char _nameserver[MONGOOSE_NAMESERVERS][MONGOOSE_NAMESERVER_LEN];
     char _active[MONGOOSE_NAMESERVER_LEN];  // what mgr.dns4.url points at
     int _nameserverCount;
@@ -81,19 +89,31 @@ class MongooseCore
     /**
      * @brief Set the DNS servers the resolver may use
      *
-     * The first becomes active immediately; the second (if any) is only used
-     * after a resolve timeout against the first, see dnsError(). Any DNS
-     * connection to a previous server is closed so the next lookup goes to
-     * the new one. ipConfigChanged() calls this with the DHCP-supplied
-     * servers; call it directly on platforms without WiFi/ETH.
+     * The first usable entry becomes active immediately; the rest are only
+     * used after a resolve timeout against the active one, see dnsError(),
+     * which rotates through them in order. Any DNS connection to a previous
+     * server is closed so the next lookup goes to the new one.
+     * ipConfigChanged() calls this with the DHCP-supplied servers; call it
+     * directly on platforms without WiFi/ETH.
      *
-     * With neither given, the resolver keeps the URL it already has (the
+     * NULL and empty entries are skipped, so a partly filled array is fine.
+     * At most MONGOOSE_NAMESERVERS are kept and the rest ignored. With no
+     * usable entry the resolver keeps the URL it already has (the
      * mg_mgr_init() default, or the last server set).
      *
-     * @param primary DNS server URL, e.g. "udp://192.168.1.1:53", or NULL
-     * @param secondary Fallback DNS server URL, or NULL for none
+     * The strings are copied; the array need not outlive the call.
+     *
+     * @param servers DNS server URLs, e.g. "udp://192.168.1.1:53"
+     * @param count How many entries @p servers has
      */
-    void setNameservers(const char *primary, const char *secondary = nullptr);
+    void setNameservers(const char *const *servers, size_t count);
+
+    /**
+     * @brief Set a single DNS server, with no failover
+     *
+     * @param server DNS server URL, or NULL to keep the current one
+     */
+    void setNameserver(const char *server);
 
     /**
      * @brief Get the DNS server currently used for lookups
