@@ -2,6 +2,9 @@
 
 #include <MongooseMdns.h>
 
+#include <stdio.h>
+#include <string.h>
+
 #include <string>
 #include <vector>
 #include "test_support.h"
@@ -165,6 +168,77 @@ mg_connection *receiver(Packet &packet) {
       }
     }, &packet);
 }
+
+// --- Isolation from the real network ---------------------------------------
+//
+// mg_mdns_listen() joins 224.0.0.251:5353 on every interface, so anything
+// listening on that group hears the whole LAN, not just this process. On an
+// ordinary developer network that is around one query a second from a dozen
+// hosts, plus their responses.
+//
+// Two of these tests count queries seen on the group and one browses
+// "_openevse._tcp" -- a service real units on the same network advertise. So
+// the counters counted other people's queries, and the browse collected real
+// answers, which is what made them fail roughly one run in two.
+//
+// Both go away by browsing a service type that exists only inside this
+// process: nothing out there queries it, and nothing answers it. The query
+// counter matches on that name as well, so a stray datagram is ignored even
+// if one does arrive. It also stops the suite advertising a bogus
+// "_openevse._tcp" responder onto the real network while it runs.
+// mg_millis() rather than getpid(): this file is also compiled for the
+// esp32_test build, where there are no processes.
+std::string uniqueService() {
+  static int n = 0;
+  char buf[64];
+  snprintf(buf, sizeof(buf), "_amtest%lu-%d._tcp",
+           (unsigned long) (mg_millis() & 0xffffff), ++n);
+  return buf;
+}
+
+// True if this datagram is an mDNS *query* carrying `service` as a question.
+// Matching on the first label is enough: it is unique to this process, so a
+// match cannot have come from the network.
+bool isQueryFor(const mg_connection *c, const std::string &service) {
+  if (c->recv.len <= 12 || c->recv.buf[2] != 0) {
+    return false;  // too short, or a response rather than a query
+  }
+  const std::string label = service.substr(0, service.find('.'));
+  if (c->recv.len < label.size()) {
+    return false;
+  }
+  for (size_t i = 0; i + label.size() <= c->recv.len; i++) {
+    if (0 == memcmp(c->recv.buf + i, label.data(), label.size())) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// No default member initialisers: a C++11 aggregate cannot have them, and
+// these are brace-initialised at every use.
+struct QueryCounter {
+  std::string service;
+  int count;
+};
+
+// Joins the group and counts only the queries for counter.service.
+mg_connection *queryCounter(QueryCounter &counter) {
+  auto *rx = mg_listen(Mongoose.getMgr(), "udp://224.0.0.251:5353",
+    [](mg_connection *c, int ev, void *) {
+      if (ev == MG_EV_READ) {
+        auto &q = *static_cast<QueryCounter *>(c->fn_data);
+        if (isQueryFor(c, q.service)) {
+          q.count++;
+        }
+        c->recv.len = 0;
+      }
+    }, &counter);
+  if (rx) {
+    mg_multicast_add(rx, const_cast<char *>("224.0.0.251"));
+  }
+  return rx;
+}
 }
 
 static void test_mdns_query_encodes_requested_type_and_local_suffix() {
@@ -172,10 +246,13 @@ static void test_mdns_query_encodes_requested_type_and_local_suffix() {
   MongooseMdns mdns;
   TEST_ASSERT_TRUE(mdns.begin("unit-query"));
   Packet packet;
+  // Filtered the same way as the counters above: this compares the captured
+  // bytes against an exact expected packet, so capturing a passing stranger's
+  // query off the group would fail it.
   auto *rx = mg_listen(Mongoose.getMgr(), "udp://224.0.0.251:5353",
     [](mg_connection *c, int ev, void *) {
       if (ev == MG_EV_READ) {
-        if (c->recv.len > 12 && c->recv.buf[2] == 0) {
+        if (isQueryFor(c, "_unit-query._tcp")) {
           auto &p = *static_cast<Packet *>(c->fn_data);
           p.assign(c->recv.buf, c->recv.buf + c->recv.len);
         }
@@ -210,19 +287,20 @@ static void test_mdns_query_encodes_requested_type_and_local_suffix() {
 // this fails -- which is what four native instances discovering each other
 // actually exercises.
 static void test_mdns_browse_parses_our_own_responders_real_reply() {
+  const std::string service = uniqueService();
   Packet reply;
   {
     ScopedMongoose scope;
     MongooseMdns responder;
     TEST_ASSERT_TRUE(responder.begin("peer"));
-    TEST_ASSERT_TRUE(responder.addService("_openevse._tcp", 8443));
-    TEST_ASSERT_TRUE(responder.addServiceTxt("_openevse._tcp", "id", "7"));
+    TEST_ASSERT_TRUE(responder.addService(service.c_str(), 8443));
+    TEST_ASSERT_TRUE(responder.addServiceTxt(service.c_str(), "id", "7"));
     auto *rx = receiver(reply);
     TEST_ASSERT_NOT_NULL(rx);
     auto *c = Mongoose.getMgr()->mdns;
     c->rem = rx->loc;
     Packet q(12, 0); q[5] = 1;                 // 1 question
-    auto labels = name("_openevse._tcp.local");
+    auto labels = name((service + ".local").c_str());
     q.insert(q.end(), labels.begin(), labels.end());
     wordBE(q, MG_DNS_RTYPE_PTR); wordBE(q, 0x8001);  // QU so the reply is unicast
     inject(c, q);
@@ -233,11 +311,11 @@ static void test_mdns_browse_parses_our_own_responders_real_reply() {
     ScopedMongoose scope;
     MongooseMdns browser;
     TEST_ASSERT_TRUE(browser.begin("unit-browse"));
-    TEST_ASSERT_TRUE(browser.browse("_openevse._tcp"));
+    TEST_ASSERT_TRUE(browser.browse(service.c_str()));
     inject(Mongoose.getMgr()->mdns, reply);
     auto services = browser.services();
     TEST_ASSERT_EQUAL(1, services.size());
-    TEST_ASSERT_EQUAL_STRING("peer._openevse._tcp.local", services[0].instance.c_str());
+    TEST_ASSERT_EQUAL_STRING(("peer." + service + ".local").c_str(), services[0].instance.c_str());
     TEST_ASSERT_EQUAL_STRING("peer.local", services[0].hostname.c_str());
     TEST_ASSERT_EQUAL(8443, services[0].port);
   }
@@ -250,15 +328,17 @@ static void test_mdns_browse_resolves_combined_ptr_srv_txt_a_reply() {
   // simulate that shape, the one this library's browse() actually receives.
   ScopedMongoose scope;
   MongooseMdns mdns;
+  const std::string service = uniqueService();
   TEST_ASSERT_TRUE(mdns.begin("unit-browse"));
-  TEST_ASSERT_TRUE(mdns.browse("_openevse._tcp"));
+  TEST_ASSERT_TRUE(mdns.browse(service.c_str()));
   auto *c = Mongoose.getMgr()->mdns;
   // Our responder never gives an instance a name distinct from its hostname
   // (see handleResponse()'s comment on this), so "peer" is used for both.
-  const char *instance = "peer._openevse._tcp.local";
+  const std::string instanceStr = "peer." + service + ".local";
+  const char *instance = instanceStr.c_str();
 
   Packet p = response(1, 3);
-  record(p, "_openevse._tcp.local", MG_DNS_RTYPE_PTR, name(instance));
+  record(p, (service + ".local").c_str(), MG_DNS_RTYPE_PTR, name(instance));
   Packet srv(4, 0); wordBE(srv, 8443);
   auto host = name("peer.local"); srv.insert(srv.end(), host.begin(), host.end());
   record(p, instance, MG_DNS_RTYPE_SRV, srv);
@@ -304,31 +384,22 @@ static void test_mdns_browse_retries_the_ptr_query_a_bounded_number_of_times() {
   MongooseMdns mdns;
   TEST_ASSERT_TRUE(mdns.begin("unit-retry"));
 
-  static int queries;
-  queries = 0;
-  auto *rx = mg_listen(Mongoose.getMgr(), "udp://224.0.0.251:5353",
-    [](mg_connection *c, int ev, void *) {
-      if (ev == MG_EV_READ) {
-        if (c->recv.len > 12 && c->recv.buf[2] == 0) queries++;  // a query, not a response
-        c->recv.len = 0;
-      }
-    }, nullptr);
-  TEST_ASSERT_NOT_NULL(rx);
-  mg_multicast_add(rx, const_cast<char *>("224.0.0.251"));
+  QueryCounter counter{uniqueService(), 0};
+  TEST_ASSERT_NOT_NULL(queryCounter(counter));
 
-  TEST_ASSERT_TRUE(mdns.browse("_openevse._tcp"));
-  TEST_ASSERT_TRUE(pumpUntil([&]() { return queries >= 1; }));
+  TEST_ASSERT_TRUE(mdns.browse(counter.service.c_str()));
+  TEST_ASSERT_TRUE(pumpUntil([&]() { return counter.count >= 1; }));
 
   const int expected = 1 + MG_MDNS_BROWSE_MAX_RETRIES;
-  TEST_ASSERT_TRUE(pumpUntil([&]() { return queries >= expected; },
+  TEST_ASSERT_TRUE(pumpUntil([&]() { return counter.count >= expected; },
                              MG_MDNS_BROWSE_MAX_RETRIES * MG_MDNS_BROWSE_RETRY_MS + 500));
-  TEST_ASSERT_EQUAL(expected, queries);
+  TEST_ASSERT_EQUAL(expected, counter.count);
 
   // Bounded: no further sends once MG_MDNS_BROWSE_MAX_RETRIES is spent, even
   // across several more retry intervals -- this is not the unbounded
   // per-poll re-query pollBrowse() used to do.
   pumpFor(MG_MDNS_BROWSE_RETRY_MS * 2);
-  TEST_ASSERT_EQUAL(expected, queries);
+  TEST_ASSERT_EQUAL(expected, counter.count);
 }
 
 static void test_mdns_cancel_browse_stops_retries_in_flight() {
@@ -336,25 +407,16 @@ static void test_mdns_cancel_browse_stops_retries_in_flight() {
   MongooseMdns mdns;
   TEST_ASSERT_TRUE(mdns.begin("unit-cancel"));
 
-  static int queries;
-  queries = 0;
-  auto *rx = mg_listen(Mongoose.getMgr(), "udp://224.0.0.251:5353",
-    [](mg_connection *c, int ev, void *) {
-      if (ev == MG_EV_READ) {
-        if (c->recv.len > 12 && c->recv.buf[2] == 0) queries++;
-        c->recv.len = 0;
-      }
-    }, nullptr);
-  TEST_ASSERT_NOT_NULL(rx);
-  mg_multicast_add(rx, const_cast<char *>("224.0.0.251"));
+  QueryCounter counter{uniqueService(), 0};
+  TEST_ASSERT_NOT_NULL(queryCounter(counter));
 
-  TEST_ASSERT_TRUE(mdns.browse("_openevse._tcp"));
-  TEST_ASSERT_TRUE(pumpUntil([&]() { return queries >= 1; }));
+  TEST_ASSERT_TRUE(mdns.browse(counter.service.c_str()));
+  TEST_ASSERT_TRUE(pumpUntil([&]() { return counter.count >= 1; }));
 
   mdns.cancelBrowse();
-  int afterCancel = queries;
+  int afterCancel = counter.count;
   pumpFor(MG_MDNS_BROWSE_RETRY_MS * 3);
-  TEST_ASSERT_EQUAL(afterCancel, queries);
+  TEST_ASSERT_EQUAL(afterCancel, counter.count);
 }
 
 static void test_mdns_browse_instance_name_is_approximated_from_hostname() {
@@ -369,13 +431,15 @@ static void test_mdns_browse_instance_name_is_approximated_from_hostname() {
   // documented here rather than silently assumed.
   ScopedMongoose scope;
   MongooseMdns mdns;
+  const std::string service = uniqueService();
   TEST_ASSERT_TRUE(mdns.begin("unit-browse2"));
-  TEST_ASSERT_TRUE(mdns.browse("_openevse._tcp"));
+  TEST_ASSERT_TRUE(mdns.browse(service.c_str()));
   auto *c = Mongoose.getMgr()->mdns;
-  const char *instance = "Display Name._openevse._tcp.local";
+  const std::string instanceStr = "Display Name." + service + ".local";
+  const char *instance = instanceStr.c_str();
 
   Packet p = response(1, 1);
-  record(p, "_openevse._tcp.local", MG_DNS_RTYPE_PTR, name(instance));
+  record(p, (service + ".local").c_str(), MG_DNS_RTYPE_PTR, name(instance));
   Packet srv(4, 0); wordBE(srv, 8443);
   auto host = name("peer.local"); srv.insert(srv.end(), host.begin(), host.end());
   record(p, instance, MG_DNS_RTYPE_SRV, srv);
@@ -383,7 +447,8 @@ static void test_mdns_browse_instance_name_is_approximated_from_hostname() {
 
   auto services = mdns.services();
   TEST_ASSERT_EQUAL(1, services.size());
-  TEST_ASSERT_EQUAL_STRING("peer._openevse._tcp.local", services[0].instance.c_str());
+  TEST_ASSERT_EQUAL_STRING(("peer." + service + ".local").c_str(),
+                           services[0].instance.c_str());
   TEST_ASSERT_EQUAL_STRING("peer.local", services[0].hostname.c_str());
 }
 
