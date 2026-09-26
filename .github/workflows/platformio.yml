@@ -51,6 +51,12 @@ jobs:
           board: native
         - example: native_upload_http_server
           board: native
+        - example: simple_websocket_client
+          board: esp-wrover-kit
+        - example: simple_websocket_client_native
+          board: native
+        - example: mdns_discovery
+          board: native
 
     runs-on: ubuntu-latest
     name: Build ${{ matrix.example }}-${{ matrix.board }}

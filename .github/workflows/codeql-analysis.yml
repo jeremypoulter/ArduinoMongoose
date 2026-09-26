@@ -30,6 +30,12 @@ jobs:
         - example: sntp_client
           board: native
           platform: native
+        - example: simple_websocket_client_native
+          board: native
+          platform: native
+        - example: mdns_discovery
+          board: native
+          platform: native
         #- example: simple_http_server
         #  board: esp-wrover-kit-secure
         #  platform: espressif32
