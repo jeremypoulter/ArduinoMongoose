@@ -76,8 +76,8 @@ int main(int argc, char *argv[])
     // Call wsClient.loop() to handle reconnection, heartbeat, etc.
     wsClient.loop();
 
-    // Get current time (using mongoose's time function)
-    unsigned long now = mg_time() * 1000;  // Convert to milliseconds
+    // Get current time in milliseconds (using mongoose's time function)
+    unsigned long now = mg_millis();
     
     // Send a message every 10 seconds
     if(wsClient.connected() && now >= next_send) {
