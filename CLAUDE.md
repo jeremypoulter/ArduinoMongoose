@@ -39,3 +39,4 @@ Not lazy about: understanding the problem (read it fully and trace the real flow
 - Test with PlatformIO: `cd tests/unit && pio test -e native`
 - Do not modify vendored files `src/mongoose.c` / `src/mongoose.h`.
 - Examples must be self-contained; shared helpers belong in `src/`.
+- A new example must be registered in `library.json`'s `examples` list and in `.github/workflows/platformio.yml`'s build matrix (plus `codeql-analysis.yml`'s matrix if it has a `[env:native]`). `.github/scripts/check-examples-in-sync.sh` enforces this in CI — run it after adding or removing an example.
