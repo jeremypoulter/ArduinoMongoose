@@ -36,6 +36,12 @@ jobs:
         - example: mdns_discovery
           board: native
           platform: native
+        - example: native_upload_http_server
+          board: native
+          platform: native
+        - example: streaming_http_client_native
+          board: native
+          platform: native
         #- example: simple_http_server
         #  board: esp-wrover-kit-secure
         #  platform: espressif32

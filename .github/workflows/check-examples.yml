@@ -1,0 +1,17 @@
+name: Examples in sync
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check examples are packaged and built by CI
+        run: .github/scripts/check-examples-in-sync.sh
