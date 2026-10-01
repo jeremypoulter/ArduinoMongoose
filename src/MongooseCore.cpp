@@ -71,7 +71,7 @@ void MongooseCore::ipConfigChanged()
     dns[i] = WiFi.dnsIP(i);
   }
 #if defined(ESP32) && defined(ENABLE_WIRED_ETHERNET)
-  if(0 == dns[0]) {
+  if(IPAddress(0, 0, 0, 0) == dns[0]) {
     for(int i = 0; i < MONGOOSE_NAMESERVERS; i++) {
       dns[i] = ETH.dnsIP(i);
     }
@@ -82,7 +82,7 @@ void MongooseCore::ipConfigChanged()
   IPAddress kept[MONGOOSE_NAMESERVERS];
   size_t n = 0;
   for(int i = 0; i < MONGOOSE_NAMESERVERS; i++) {
-    if(0 == dns[i]) {
+    if(IPAddress(0, 0, 0, 0) == dns[i]) {
       continue;
     }
     // Drop duplicates against everything kept so far, not just the first:
