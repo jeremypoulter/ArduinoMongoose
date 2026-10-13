@@ -15,11 +15,39 @@
 #include "MongooseCore.h"
 #include "MongooseMdns.h"
 
+#if defined(ESP_PLATFORM)
+#include <lwip/ip4.h>
+#include <lwip/netif.h>
+#include <lwip/tcpip.h>
+#endif
+
 MongooseMdns Mdns;
+
+__attribute__((weak))
+bool mongoose_mdns_local_address(const struct mg_addr &peer, struct mg_addr &local)
+{
+#if defined(ESP_PLATFORM)
+  if (peer.is_ip6) return false;
+  ip4_addr_t dest;
+  ip4_addr_set_u32(&dest, peer.addr.ip4);  // both network byte order
+  LOCK_TCPIP_CORE();
+  struct netif *nif = ip4_route(&dest);
+  uint32_t ip = nif ? ip4_addr_get_u32(netif_ip4_addr(nif)) : 0;
+  UNLOCK_TCPIP_CORE();
+  if (ip == 0) return false;
+  memset(&local, 0, sizeof(local));
+  local.addr.ip4 = ip;
+  return true;
+#else
+  (void)peer; (void)local;
+  return false;
+#endif
+}
 
 MongooseMdns::MongooseMdns() :
   _mdns(nullptr),
   _hostname(nullptr),
+  _localAddr(),
   _numServices(0),
   _onRequest(nullptr)
 {
@@ -50,6 +78,12 @@ void MongooseMdns::eventHandler(struct mg_connection *nc, int ev, void *ev_data)
 void MongooseMdns::handleReq(struct mg_connection *nc, struct mg_mdns_req *req)
 {
   if (!req) return;
+
+  // Every reply we send can carry an A record, as the answer or as the
+  // additional record after PTR/SRV, so pick the address up front.
+  if (mongoose_mdns_local_address(nc->rem, _localAddr)) {
+    req->addr = &_localAddr;
+  }
 
   if (req->is_listing) {
     for (int i = 0; i < _numServices; i++) {
@@ -101,8 +135,6 @@ void MongooseMdns::handleReq(struct mg_connection *nc, struct mg_mdns_req *req)
     wrapper._req = req;
     _onRequest(&wrapper);
   }
-
-  (void)nc;
 }
 
 bool MongooseMdns::begin(const char *hostname)
