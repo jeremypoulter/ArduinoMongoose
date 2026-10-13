@@ -555,6 +555,48 @@ static void test_mdns_advertises_encoded_txt_and_full_srv_owner() {
   TEST_ASSERT_EQUAL(MG_DNS_RTYPE_SRV, rr.atype);
 }
 
+// The platform hook chooses the address our A records carry. Without it,
+// Mongoose asks getsockname() on a UDP socket connect()ed to 224.0.0.251,
+// and lwIP never fills in a source address on connect, so ESP32 boards
+// advertised 0.0.0.0.
+static bool g_hook_active = false;
+static mg_addr g_hook_peer;
+
+bool mongoose_mdns_local_address(const struct mg_addr &peer, struct mg_addr &local) {
+  if (!g_hook_active) return false;
+  g_hook_peer = peer;
+  memset(&local, 0, sizeof(local));
+  local.addr.ip4 = MG_IPV4(10, 1, 2, 3);
+  return true;
+}
+
+static void test_mdns_a_record_uses_the_platform_address_for_the_querier() {
+  ScopedMongoose scope;
+  MongooseMdns mdns;
+  TEST_ASSERT_TRUE(mdns.begin("unit-addr"));
+  Packet packet;
+  auto *rx = receiver(packet);
+  auto *c = Mongoose.getMgr()->mdns;
+  c->rem = rx->loc;
+  Packet q(12, 0); q[5] = 1;
+  auto labels = name("unit-addr.local");
+  q.insert(q.end(), labels.begin(), labels.end());
+  wordBE(q, MG_DNS_RTYPE_A); wordBE(q, 0x8001);
+  g_hook_active = true;
+  inject(c, q);
+  bool got = pumpUntil([&]() { return !packet.empty(); });
+  g_hook_active = false;
+  TEST_ASSERT_TRUE(got);
+  mg_dns_rr rr;
+  size_t n = mg_dns_parse_rr(packet.data(), packet.size(), 12, false, &rr);
+  TEST_ASSERT_GREATER_THAN(0, n);
+  TEST_ASSERT_EQUAL(MG_DNS_RTYPE_A, rr.atype);
+  TEST_ASSERT_EQUAL(4, rr.alen);
+  const uint8_t want[] = {10, 1, 2, 3};
+  TEST_ASSERT_EQUAL_MEMORY(want, packet.data() + 12 + n - 4, 4);
+  TEST_ASSERT_EQUAL_UINT32(rx->loc.addr.ip4, g_hook_peer.addr.ip4);
+}
+
 static void test_mdns_processes_later_questions_and_service_enumeration() {
   ScopedMongoose scope;
   MongooseMdns mdns;
@@ -611,6 +653,7 @@ static void test_mdns_compressed_response_questions_and_malformed_records() {
 }
 
 void runMdnsTests() {
+  RUN_TEST(test_mdns_a_record_uses_the_platform_address_for_the_querier);
   RUN_TEST(test_mdns_processes_later_questions_and_service_enumeration);
   RUN_TEST(test_mdns_compressed_response_questions_and_malformed_records);
   RUN_TEST(test_mdns_query_encodes_requested_type_and_local_suffix);

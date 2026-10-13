@@ -16,6 +16,19 @@
 class MongooseMdns;
 struct MongooseMdnsRequest;
 
+/**
+ * @brief Address to advertise in our A records, for a query from `peer`.
+ *
+ * Mongoose otherwise takes it from getsockname() on a UDP socket connect()ed
+ * to 224.0.0.251. lwIP never fills in a source address on connect, so on
+ * ESP32 that gives 0.0.0.0. The ESP32 default asks lwIP which interface routes
+ * back to the peer, which is also right with STA and AP both up; elsewhere it
+ * returns false and Mongoose's own lookup is used. Weak: define it to override.
+ *
+ * @return true if `local` was filled in
+ */
+bool mongoose_mdns_local_address(const struct mg_addr &peer, struct mg_addr &local);
+
 // Callback for incoming mDNS query events (advanced use)
 typedef std::function<void(MongooseMdnsRequest *req)> MongooseMdnsRequestHandler;
 
@@ -106,6 +119,7 @@ class MongooseMdns
   private:
     struct mg_connection *_mdns;
     char *_hostname;
+    struct mg_addr _localAddr;  // A-record address for the request being answered
 
     ServiceRecord _services[MAX_SERVICES];
     mg_dnssd_record _listing[MAX_SERVICES];
