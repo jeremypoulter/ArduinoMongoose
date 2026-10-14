@@ -24,6 +24,7 @@ MongooseHttpServerResponseStream::~MongooseHttpServerResponseStream()
 
 size_t MongooseHttpServerResponseStream::write(const uint8_t *data, size_t len)
 {
+  MongooseCore::Guard guard;
   size_t written = mg_iobuf_add(&_content, _content.len, data, len);
   setContentLength(_content.len);
   return written;
@@ -31,11 +32,13 @@ size_t MongooseHttpServerResponseStream::write(const uint8_t *data, size_t len)
 
 size_t MongooseHttpServerResponseStream::write(uint8_t data)
 {
+  MongooseCore::Guard guard;
   return write(&data, 1);
 }
 
 size_t MongooseHttpServerResponseStream::sendBody(struct mg_connection *nc, size_t bytes)
 {
+  MongooseCore::Guard guard;
   size_t send = std::min(_content.len, bytes);
 
   mg_send(nc, _content.buf, send);

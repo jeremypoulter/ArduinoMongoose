@@ -252,6 +252,7 @@ void MongooseHttpClientRequest::onClose(mg_connection *nc)
 
 bool MongooseHttpClientRequest::send()
 {
+  MongooseCore::Guard guard;
   if(nullptr == _uri) {
     DBUGF("No URI, was the request allocated with one?");
     return false;
