@@ -29,6 +29,7 @@ static void test_post_runs_on_polling_thread_and_allows_reentry()
   TEST_ASSERT_TRUE(pumpUntil([&]() { return ran.load(); }));
   TEST_ASSERT_TRUE(onPollThread);
   TEST_ASSERT_EQUAL_STRING("udp://127.0.0.1:53", Mongoose.nameserver());
+  Mongoose.setNameservers(nullptr, 0);
 }
 #endif
 
