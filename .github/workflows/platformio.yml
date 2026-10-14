@@ -84,3 +84,23 @@ jobs:
           |
           cd examples/${{ matrix.example }}
           pio run -e ${{ matrix.board }}
+
+      - name: Smoke test native example
+        if: matrix.board == 'native'
+        env:
+          EXAMPLE: ${{ matrix.example }}
+        run: |
+          cd "examples/$EXAMPLE" || exit
+          args=()
+          case "$EXAMPLE" in
+            simple_websocket_client_native) args=(ws://127.0.0.1:1/) ;;
+          esac
+          if timeout --kill-after=5s 8s .pio/build/native/program "${args[@]}"; then
+            status=0
+          else
+            status=$?
+          fi
+          if [ "$status" -ne 0 ] && [ "$status" -ne 124 ]; then
+            echo "Native example exited with status $status"
+            exit "$status"
+          fi
