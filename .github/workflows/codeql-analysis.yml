@@ -30,7 +30,7 @@ jobs:
         - example: sntp_client
           board: native
           platform: native
-        - example: simple_websocket_client_native
+        - example: simple_websocket_client
           board: native
           platform: native
         - example: mdns_discovery
