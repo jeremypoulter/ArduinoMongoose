@@ -93,7 +93,7 @@ jobs:
           cd "examples/$EXAMPLE" || exit
           args=()
           case "$EXAMPLE" in
-            simple_websocket_client_native) args=(ws://127.0.0.1:1/) ;;
+            simple_websocket_client) args=(ws://127.0.0.1:1/) ;;
           esac
           if timeout --kill-after=5s 8s .pio/build/native/program "${args[@]}"; then
             status=0
