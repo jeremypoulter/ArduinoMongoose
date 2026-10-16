@@ -12,6 +12,19 @@
 #include "MongooseHttpServerRequestUpload.h"
 #include "MongooseHttpServerEndpointUpload.h"
 
+// Largest multipart/form-data body we agree to buffer. Mongoose 7 holds the
+// whole body in one contiguous RAM block before dispatching it, so on ESP32 a
+// firmware-sized body can never succeed: the allocation fails mid-upload and
+// the connection is dropped with no explanation. Refuse it up front with a 413
+// instead. 0 disables the check (the default off ESP32).
+#ifndef ARDUINO_MONGOOSE_MAX_MULTIPART_BODY
+#if defined(ESP32) && !defined(EPOXY_DUINO)
+#define ARDUINO_MONGOOSE_MAX_MULTIPART_BODY ((size_t)ESP.getMaxAllocHeap() / 2)
+#else
+#define ARDUINO_MONGOOSE_MAX_MULTIPART_BODY 0
+#endif
+#endif
+
 // ---------------------------------------------------------------------------
 // Constructor – during MG_EV_HTTP_HDRS, decide which upload path to use:
 //
@@ -59,6 +72,18 @@ MongooseHttpServerRequestUpload::MongooseHttpServerRequestUpload(
   if(ct) {
     struct mg_str boundary = mg_http_get_header_var(*ct, mg_str("boundary"));
     if(boundary.buf != nullptr && boundary.len > 0) {
+      size_t limit = ARDUINO_MONGOOSE_MAX_MULTIPART_BODY;
+      // A chunked body has no Content-Length to check, and Mongoose would
+      // buffer all of it, so it cannot be bounded here: refuse it too.
+      if(limit > 0 && mg_http_get_header(msg, "Transfer-Encoding") != nullptr) {
+        send(413, "text/plain",
+             "chunked multipart uploads are not supported; POST the raw body "
+             "with Content-Type: application/octet-stream");
+      } else if(limit > 0 && msg->body.len > limit) {
+        send(413, "text/plain",
+             "multipart upload too large to buffer; POST the raw body with "
+             "Content-Type: application/octet-stream");
+      }
       return;  // multipart/form-data → non-streaming; handleMessage() will run
     }
   }
@@ -135,6 +160,11 @@ void MongooseHttpServerRequestUpload::onReceive(mg_connection *nc, long /*num_by
 void MongooseHttpServerRequestUpload::handleMessage(mg_connection *nc, mg_http_message *msg)
 {
   DBUGF("MongooseHttpServerRequestUpload::handleMessage");
+
+  // Already refused (e.g. 413 for an oversized body) while the headers arrived.
+  if(_responseSent) {
+    return;
+  }
 
 #if MG_COPY_HTTP_MESSAGE
   _msg->body = msg->body;

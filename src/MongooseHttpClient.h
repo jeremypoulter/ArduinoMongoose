@@ -43,8 +43,20 @@ class MongooseHttpClientRequest : public MongooseSocket
     char *_extraHeaders;
     uint64_t _timeout_ms;
 
+    // Streaming response state (see setStreaming()). _head owns a copy of the
+    // response headers, because the originals live in the connection's receive
+    // buffer, which is drained as the body goes by.
+    bool _stream;
+    bool _streaming;
+    bool _streamDone;
+    char *_head;
+    mg_http_message _hm;
+    size_t _expected;
+    size_t _received;
+
   protected:
     void handleEvent(mg_connection *nc, int ev, void *p);
+    void onReceive(mg_connection *nc, long num_bytes);
     void onOpen(mg_connection *nc);
     void onConnect(mg_connection *nc);
     void onPoll(mg_connection *nc);
@@ -108,6 +120,24 @@ class MongooseHttpClientRequest : public MongooseSocket
 
     MongooseHttpClientRequest *onBody(MongooseHttpResponseHandler handler) {
       _onBody = handler;
+      return this;
+    }
+
+    /**
+     * @brief Deliver the response body incrementally instead of buffering it.
+     *
+     * Mongoose 7 normally holds the whole response in RAM and fires one
+     * onBody() with all of it, which cannot work for a large download (a
+     * firmware image) on a small device. With streaming on, onBody() is called
+     * once per received chunk with body() set to just that chunk; respCode(),
+     * headers() and contentLength() describe the whole response. onResponse()
+     * is called once, after the last byte, with an empty body().
+     *
+     * Only responses with a Content-Length are streamed. Chunked, empty and
+     * length-less responses are buffered exactly as before. Call before send().
+     */
+    MongooseHttpClientRequest *setStreaming(bool streaming = true) {
+      _stream = streaming;
       return this;
     }
 
