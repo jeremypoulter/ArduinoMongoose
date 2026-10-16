@@ -18,7 +18,7 @@
 // the connection is dropped with no explanation. Refuse it up front with a 413
 // instead. 0 disables the check (the default off ESP32).
 #ifndef ARDUINO_MONGOOSE_MAX_MULTIPART_BODY
-#if defined(ESP32)
+#if defined(ESP32) && !defined(EPOXY_DUINO)
 #define ARDUINO_MONGOOSE_MAX_MULTIPART_BODY ((size_t)ESP.getMaxAllocHeap() / 2)
 #else
 #define ARDUINO_MONGOOSE_MAX_MULTIPART_BODY 0
