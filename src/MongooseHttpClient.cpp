@@ -158,7 +158,13 @@ MongooseHttpClientRequest::MongooseHttpClientRequest(const char *uri) :
   _contentType(nullptr),
   _contentLength(-1),
   _body(nullptr),
-  _extraHeaders(nullptr)
+  _extraHeaders(nullptr),
+  _stream(false),
+  _streaming(false),
+  _streamDone(false),
+  _head(nullptr),
+  _expected(0),
+  _received(0)
 {
 
 }
@@ -173,12 +179,42 @@ MongooseHttpClientRequest::~MongooseHttpClientRequest()
   _body = nullptr;
   free(_extraHeaders);
   _extraHeaders = nullptr;
+  free(_head);
+  _head = nullptr;
 }
 
 void MongooseHttpClientRequest::handleEvent(mg_connection *nc, int ev, void *p)
 {
   switch (ev)
   {
+    case MG_EV_HTTP_HDRS:
+    {
+      struct mg_http_message *hm = (struct mg_http_message *) p;
+      // Only stream a body whose end we can find without parsing: a
+      // Content-Length one. Anything else falls through to MG_EV_HTTP_MSG.
+      if(_stream && !_streaming &&
+         nullptr == mg_http_get_header(hm, "Transfer-Encoding") &&
+         nullptr != mg_http_get_header(hm, "Content-Length") &&
+         hm->body.len > 0 &&
+         (_head = (char *)malloc(hm->head.len)))
+      {
+        memcpy(_head, hm->head.buf, hm->head.len);
+        if(mg_http_parse(_head, hm->head.len, &_hm) > 0)
+        {
+          _expected = hm->body.len;
+          _received = 0;
+          _streaming = true;
+          // Removing the headers from the receive buffer is Mongoose's escape
+          // hatch: http_cb sees the buffer change, detaches itself and leaves
+          // every later MG_EV_READ to us (onReceive), as the server's raw
+          // upload path does.
+          mg_iobuf_del(&nc->recv, 0, hm->head.len);
+          onReceive(nc, (long)nc->recv.len);
+        }
+      }
+      break;
+    }
+
     case MG_EV_HTTP_MSG:
     {
       char addr[32];
@@ -196,6 +232,38 @@ void MongooseHttpClientRequest::handleEvent(mg_connection *nc, int ev, void *p)
       }
 
       break;
+    }
+  }
+}
+
+void MongooseHttpClientRequest::onReceive(mg_connection *nc, long num_bytes)
+{
+  if(!_streaming) {
+    return;
+  }
+
+  while(nc->recv.len > 0 && _received < _expected && !nc->is_closing)
+  {
+    size_t n = nc->recv.len < _expected - _received ? nc->recv.len : _expected - _received;
+    mg_http_message chunk = _hm;
+    chunk.body = mg_str_n((const char *)nc->recv.buf, n);
+    MongooseHttpClientResponse response(&chunk);
+    _received += n;
+    if(_onBody) {
+      _onBody(&response);
+    }
+    mg_iobuf_del(&nc->recv, 0, n);
+  }
+
+  if(_received >= _expected && !_streamDone)
+  {
+    _streamDone = true;
+    mg_iobuf_del(&nc->recv, 0, nc->recv.len);  // nothing is meant to follow
+    mg_http_message done = _hm;
+    done.body = mg_str_n("", 0);
+    MongooseHttpClientResponse response(&done);
+    if(_onResponse) {
+      _onResponse(&response);
     }
   }
 }

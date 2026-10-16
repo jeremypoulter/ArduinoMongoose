@@ -26,6 +26,10 @@ For large payloads such as OTA firmware images, POST the file as a raw binary bo
 
 `multipart/form-data` requests are still supported and the `onUpload` callback API is unchanged. However, Mongoose 7 buffers the entire request body before firing the message event, so `multipart/form-data` is **not suitable for large files** on memory-constrained devices (e.g. ESP32 with ~300 KB free heap). Use `application/octet-stream` for firmware-sized payloads. Rather than drop the connection when the buffer cannot be allocated, the server answers `413` as soon as the headers arrive if the body exceeds `ARDUINO_MONGOOSE_MAX_MULTIPART_BODY` (default on ESP32: half the largest free heap block; off elsewhere; `0` disables).
 
+**Large downloads (HTTP client)**
+
+`MongooseHttpClient` also buffers a whole response before calling `onBody()`, which cannot work for a firmware-sized download on an ESP32. Call `request->setStreaming()` before `send()` to get `onBody()` once per received chunk (`body()` is just that chunk; `respCode()`, `headers()` and `contentLength()` describe the whole response) and a single `onResponse()` after the last byte with an empty body. Only responses with a `Content-Length` are streamed; chunked or length-less responses are buffered as before.
+
 **Client-side change**
 
 If your upload page previously used an HTML `<form enctype="multipart/form-data">` or set `contentType: false` in an Ajax call, switch to posting the raw `File` object with an explicit content type:

@@ -3,6 +3,7 @@
 #include <MongooseHttpClient.h>
 #include <MongooseHttpServer.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <cstring>
 #include <string>
@@ -55,6 +56,63 @@ static void test_http_client_get_exposes_status_body_headers_and_onbody() {
   TEST_ASSERT_EQUAL(200, capture.code);
   TEST_ASSERT_EQUAL_STRING("GET response body", capture.body.c_str());
   TEST_ASSERT_EQUAL_STRING("ready", capture.replyHeader.c_str());
+}
+
+// A streaming request sees a large body as several chunks that add up to the
+// whole thing, with the full length and headers on every chunk, and gets one
+// onResponse() after the last byte carrying no body.
+static void test_http_client_streaming_delivers_body_in_chunks() {
+  ScopedMongoose mongoose;
+  MongooseHttpServer server;
+  TEST_ASSERT_TRUE(server.begin(18090));
+
+  static std::string payload;
+  payload.clear();
+  for(size_t i = 0; i < 300000; i++) {
+    payload.push_back((char)('a' + (i * 7) % 26));
+  }
+
+  server.on("/big", HTTP_GET, [](MongooseHttpServerRequest *request) {
+    MongooseHttpServerResponseBasic *response = request->beginResponse();
+    response->setCode(200);
+    response->setContentType("application/octet-stream");
+    response->addHeader("X-Reply", "streamed");
+    response->setContent((const uint8_t *)payload.data(), payload.size());
+    request->send(response);
+  });
+
+  MongooseHttpClient client;
+  ClientCapture capture;
+  size_t chunks = 0, maxChunk = 0, lengthSeen = 0;
+  bool bodyAfterResponse = false, headerOnChunks = true;
+  size_t responseBodyLen = 1;
+  MongooseHttpClientRequest *request = client.beginRequest("http://127.0.0.1:18090/big");
+  request->setStreaming()->onBody([&](MongooseHttpClientResponse *response) {
+    if(capture.responded) bodyAfterResponse = true;
+    chunks++;
+    maxChunk = std::max(maxChunk, (size_t)response->body().length());
+    lengthSeen = response->contentLength();
+    if(response->respCode() != 200 || response->headers("X-Reply") != "streamed") headerOnChunks = false;
+    capture.body.append(response->body().c_str(), response->body().length());
+  })->onResponse([&](MongooseHttpClientResponse *response) {
+    capture.responded = true;
+    capture.code = response->respCode();
+    responseBodyLen = response->body().length();
+  })->onClose([&capture]() { capture.closed = true; });
+
+  TEST_ASSERT_TRUE(request->send());
+  TEST_ASSERT_TRUE_MESSAGE(pumpUntil([&capture]() { return capture.closed; }), "streaming request timed out");
+
+  TEST_ASSERT_TRUE(capture.responded);
+  TEST_ASSERT_EQUAL(200, capture.code);
+  TEST_ASSERT_EQUAL_UINT32(payload.size(), capture.body.size());
+  TEST_ASSERT_TRUE_MESSAGE(capture.body == payload, "streamed body differs from what was sent");
+  TEST_ASSERT_EQUAL_UINT32(payload.size(), lengthSeen);
+  TEST_ASSERT_TRUE_MESSAGE(chunks > 1, "body should arrive in more than one chunk");
+  TEST_ASSERT_TRUE_MESSAGE(maxChunk < payload.size(), "no chunk should hold the whole body");
+  TEST_ASSERT_FALSE_MESSAGE(bodyAfterResponse, "onResponse must come after the last chunk");
+  TEST_ASSERT_TRUE(headerOnChunks);
+  TEST_ASSERT_EQUAL_UINT32(0, responseBodyLen);
 }
 
 static void test_http_client_post_and_put_round_trip() {
@@ -279,6 +337,7 @@ static void test_http_client_owns_uri_content_type_and_body_after_return() {
 
 void runHttpClientTests() {
   RUN_TEST(test_http_client_get_exposes_status_body_headers_and_onbody);
+  RUN_TEST(test_http_client_streaming_delivers_body_in_chunks);
   RUN_TEST(test_http_client_post_and_put_round_trip);
   RUN_TEST(test_http_client_patch_and_delete);
   RUN_TEST(test_http_client_abort_returns_false_when_not_connected);
