@@ -9,7 +9,7 @@ Singleton instance `Mongoose` manages the core networking loop and configuration
 
 - `void begin()`: Initialize the Mongoose event manager.
 - `void poll(int timeout_ms)`: Poll the networking subsystem for events. Call this frequently in your main loop.
-- `bool post(std::function<void()> callback)`: Schedule work to run on the polling task. Safe to call from another task; returns `false` if wakeup support is unavailable or its queue is full.
+- `bool post(std::function<void()> callback)`: Schedule work to run on the polling task. Safe to call from another task; returns `false` if wakeup support is unavailable or its queue is full. The callback runs inside `Mongoose.poll()`, not after it returns.
 - `struct mg_mgr *getMgr()`: Get the underlying Mongoose `mg_mgr` struct.
 
 Wrapper operations that access the Mongoose manager are serialized with `poll()`
@@ -17,6 +17,8 @@ and with each other. Event callbacks may call wrapper operations recursively.
 Prefer `post()` for work that should run on the polling task. Direct use of the
 manager or connection pointers returned by `getMgr()` or `getConnection()`
 bypasses this protection; hold a `MongooseCore::Guard` while using them.
+Use a separate flag or queue serviced after `Mongoose.poll()` for work that
+must wait until the current event callback and its connection cleanup finish.
 
 For example, defer an IP-change action from an existing WiFi event handler:
 
