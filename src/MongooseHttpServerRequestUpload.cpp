@@ -73,7 +73,13 @@ MongooseHttpServerRequestUpload::MongooseHttpServerRequestUpload(
     struct mg_str boundary = mg_http_get_header_var(*ct, mg_str("boundary"));
     if(boundary.buf != nullptr && boundary.len > 0) {
       size_t limit = ARDUINO_MONGOOSE_MAX_MULTIPART_BODY;
-      if(limit > 0 && msg->body.len > limit) {
+      // A chunked body has no Content-Length to check, and Mongoose would
+      // buffer all of it, so it cannot be bounded here: refuse it too.
+      if(limit > 0 && mg_http_get_header(msg, "Transfer-Encoding") != nullptr) {
+        send(413, "text/plain",
+             "chunked multipart uploads are not supported; POST the raw body "
+             "with Content-Type: application/octet-stream");
+      } else if(limit > 0 && msg->body.len > limit) {
         send(413, "text/plain",
              "multipart upload too large to buffer; POST the raw body with "
              "Content-Type: application/octet-stream");
