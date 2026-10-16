@@ -53,7 +53,7 @@ jobs:
           board: native
         - example: simple_websocket_client
           board: esp-wrover-kit
-        - example: simple_websocket_client_native
+        - example: simple_websocket_client
           board: native
         - example: mdns_discovery
           board: native

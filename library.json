@@ -73,13 +73,6 @@
       ]
     },
     {
-      "name": "simple_websocket_client_native",
-      "base": "examples/simple_websocket_client_native",
-      "files": [
-        "src/simple_websocket_client.cpp"
-      ]
-    },
-    {
       "name": "sntp_client",
       "base": "examples/sntp_client",
       "files": [
