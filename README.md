@@ -24,7 +24,7 @@ For large payloads such as OTA firmware images, POST the file as a raw binary bo
 
 **`multipart/form-data` uploads**
 
-`multipart/form-data` requests are still supported and the `onUpload` callback API is unchanged. However, Mongoose 7 buffers the entire request body before firing the message event, so `multipart/form-data` is **not suitable for large files** on memory-constrained devices (e.g. ESP32 with ~300 KB free heap). Use `application/octet-stream` for firmware-sized payloads.
+`multipart/form-data` requests are still supported and the `onUpload` callback API is unchanged. However, Mongoose 7 buffers the entire request body before firing the message event, so `multipart/form-data` is **not suitable for large files** on memory-constrained devices (e.g. ESP32 with ~300 KB free heap). Use `application/octet-stream` for firmware-sized payloads. Rather than drop the connection when the buffer cannot be allocated, the server answers `413` as soon as the headers arrive if the body exceeds `ARDUINO_MONGOOSE_MAX_MULTIPART_BODY` (default on ESP32: half the largest free heap block; off elsewhere; `0` disables).
 
 **Client-side change**
 

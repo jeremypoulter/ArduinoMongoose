@@ -315,6 +315,47 @@ static void test_multipart_upload_basic()
 }
 
 // ---------------------------------------------------------------------------
+// test_multipart_upload_too_large
+// A multipart body over ARDUINO_MONGOOSE_MAX_MULTIPART_BODY (4096 in this test
+// build) is refused with 413 and never reaches the upload handler.
+// ---------------------------------------------------------------------------
+static void test_multipart_upload_too_large()
+{
+  ScopedMongoose mongoose;
+  MongooseHttpServer server;
+  TEST_ASSERT_TRUE(server.begin(18083));
+
+  UploadCapture capture;
+  server.on("/upload", HTTP_POST)
+    ->onUpload([&capture](MongooseHttpServerRequest *, int ev, MongooseString,
+                          uint64_t, uint8_t *, size_t) -> size_t {
+        capture.events.push_back(ev);
+        return 0;
+      });
+
+  std::string payload(8192, 'x');
+  MultipartBody mp = buildMultipart("testbdy", "big.bin", payload.data(), payload.size());
+
+  MongooseHttpClientRequest *req =
+      new MongooseHttpClientRequest("http://127.0.0.1:18083/upload");
+  req->setMethod(HTTP_POST);
+  req->setContentType(mp.contentType.c_str());
+  req->setContent((const uint8_t *)mp.body.c_str(), mp.body.size());
+  req->onResponse([&capture](MongooseHttpClientResponse *response) {
+    capture.responded = true;
+    capture.code      = response->respCode();
+  });
+  req->onClose([&capture]() { capture.closed = true; });
+  TEST_ASSERT_TRUE(req->send());
+  TEST_ASSERT_TRUE_MESSAGE(
+      pumpUntil([&capture]() { return capture.closed; }, 3000),
+      "oversized upload request timed out");
+
+  TEST_ASSERT_EQUAL(413, capture.code);
+  TEST_ASSERT_TRUE_MESSAGE(capture.events.empty(), "handler must not see a refused upload");
+}
+
+// ---------------------------------------------------------------------------
 // test_multipart_upload_filename
 // Verify that the filename reported in upload callbacks matches what was sent.
 // ---------------------------------------------------------------------------
@@ -819,6 +860,7 @@ void runHttpServerTests() {
 #endif
   RUN_TEST(test_multipart_upload_basic);
   RUN_TEST(test_multipart_upload_filename);
+  RUN_TEST(test_multipart_upload_too_large);
   RUN_TEST(test_multipart_upload_auth_rejection);
   RUN_TEST(test_raw_body_upload_basic);
   RUN_TEST(test_raw_body_upload_large);
