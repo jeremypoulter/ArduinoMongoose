@@ -123,6 +123,7 @@ class MongooseHttpClientRequest : public MongooseSocket
 
     // Gracefully stop the request and let the connection drain to close.
     bool cancel() {
+      MongooseCore::Guard guard;
       if(!getConnection()) {
         return false;
       }
@@ -133,6 +134,7 @@ class MongooseHttpClientRequest : public MongooseSocket
 
     // Immediately tear down the underlying connection.
     bool abort() {
+      MongooseCore::Guard guard;
       if(!getConnection()) {
         return false;
       }

@@ -118,6 +118,7 @@ void MongooseMqttClient::handleEvent(mg_connection *nc, int ev, void *p)
 
 bool MongooseMqttClient::connect(MongooseMqttProtocol protocol, const char *server, const char *client_id, MongooseMqttConnectionHandler onConnect)
 {
+  MongooseCore::Guard guard;
   if(nullptr == getConnection()) 
   {
     mg_mqtt_opts opts {
@@ -159,6 +160,7 @@ bool MongooseMqttClient::connect(MongooseMqttProtocol protocol, const char *serv
 
 bool MongooseMqttClient::subscribe(const char *topic, int qos)
 {
+  MongooseCore::Guard guard;
   if(connected())
   {
     DBUGF("Subscribing to '%s' qos=%d", topic, qos);
@@ -175,6 +177,7 @@ bool MongooseMqttClient::subscribe(const char *topic, int qos)
 
 bool MongooseMqttClient::publish(const char *topic, mg_str payload, bool retain, int qos)
 {
+  MongooseCore::Guard guard;
   if(connected())
   {
     struct mg_mqtt_opts opts{};
@@ -192,6 +195,7 @@ bool MongooseMqttClient::publish(const char *topic, mg_str payload, bool retain,
 
 bool MongooseMqttClient::disconnect()
 {
+  MongooseCore::Guard guard;
   if(connected())
   {
     struct mg_mqtt_opts opts{};
