@@ -41,6 +41,7 @@ MongooseSocket::MongooseSocket(mg_connection *nc) :
 
 MongooseSocket::~MongooseSocket()
 {
+  MongooseCore::Guard guard;
   // Detach from the connection before we go, but only if we still own it.
   //
   // disconnect() and abort() only *flag* the connection; mongoose does not
@@ -274,6 +275,7 @@ void MongooseSocket::handleEvent(mg_connection *nc, int ev, void *p)
 
 bool MongooseSocket::connect(mg_connection *nc)
 {
+  MongooseCore::Guard guard;
   if(!connected() && nc) {
     _nc = nc;
     nc->data[MONGOOSE_SOCKET_TYPE] = getType();

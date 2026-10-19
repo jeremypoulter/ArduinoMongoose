@@ -110,6 +110,7 @@ class MongooseHttpServerRequest : public MongooseHttpServerConnection, public Mo
      * @return false if the connection closes once the response completes
      */
     bool keepAlive() const {
+      MongooseCore::Guard guard;
       return _keepAlive;
     }
 
@@ -121,6 +122,7 @@ class MongooseHttpServerRequest : public MongooseHttpServerConnection, public Mo
      * sent.
      */
     void forceClose() {
+      MongooseCore::Guard guard;
       _keepAlive = false;
     }
 
@@ -131,14 +133,17 @@ class MongooseHttpServerRequest : public MongooseHttpServerConnection, public Mo
      * @return false while the response is still pending or in flight
      */
     bool completed() const {
+      MongooseCore::Guard guard;
       return _completed;
     }
 
     HttpRequestMethodComposite method() {
+      MongooseCore::Guard guard;
       return _method;
     }
 
     size_t contentLength() {
+      MongooseCore::Guard guard;
       return _msg->body.len;
     }
 

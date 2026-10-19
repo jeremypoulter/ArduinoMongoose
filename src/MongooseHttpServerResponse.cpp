@@ -104,6 +104,7 @@ static const char *mg_http_status_code_str(int status_code) {
 
 void MongooseHttpServerResponse::sendHeaders(struct mg_connection *nc)
 {
+  MongooseCore::Guard guard;
   mg_printf(nc,
     "HTTP/1.1 %d %s\r\n"
     "Content-Type: %s\r\n"
@@ -123,6 +124,7 @@ void MongooseHttpServerResponse::sendHeaders(struct mg_connection *nc)
 
 bool MongooseHttpServerResponse::addHeader(const char *name, const char *value)
 {
+  MongooseCore::Guard guard;
   size_t startLen = _headerBuffer ? strlen(_headerBuffer) : 0;
   size_t newLen = sizeof(": \r\n");
   newLen += strlen(name);
@@ -149,6 +151,7 @@ bool MongooseHttpServerResponse::addHeader(const String& name, const String& val
 
 void MongooseHttpServerResponse::setContentType(const char *contentType)
 {
+  MongooseCore::Guard guard;
   size_t len = strlen(contentType);
   char *newPtr = (char *)realloc(_contentType, len + 1);
   if(newPtr) {
