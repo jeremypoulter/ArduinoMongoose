@@ -183,10 +183,17 @@ class MongooseMqttClient : public MongooseSocket
 
     /**
      * @brief Check if connected to broker
+     *
+     * False once the connection is closing. mg_error() marks it closing and
+     * raises MG_EV_ERROR synchronously, so an onError handler that publishes
+     * would otherwise send on the failed connection, fail again, and re-enter
+     * onError until the stack runs out.
+     *
      * @return true if connected
      */
     bool connected() {
-      return MongooseSocket::connected() &&  _connected;
+      return MongooseSocket::connected() && _connected &&
+             !getConnection()->is_closing;
     }
 
     MongooseMqttClient *onConnect(MongooseMqttConnectionHandler fnHandler) {

@@ -218,10 +218,51 @@ static void test_mqtt_subscribe_with_qos_and_disconnect_handler() {
       "onDisconnect handler was not called after disconnect()");
 }
 
+static void test_mqtt_error_handler_sees_closing_connection_as_disconnected() {
+  const char *enabled = std::getenv("ARDUINO_MONGOOSE_ENABLE_MQTT_TESTS");
+  if (!enabled || std::string(enabled) != "1") {
+    TEST_IGNORE_MESSAGE("MQTT tests are gated; set ARDUINO_MONGOOSE_ENABLE_MQTT_TESTS=1 with a broker on localhost:1883");
+  }
+
+  ScopedMongoose mongoose;
+  MongooseMqttClient client;
+
+  bool connected = false;
+  int errors = 0;
+  bool connectedInHandler = true;
+  bool publishedInHandler = true;
+
+  // A handler that publishes from onError, as OpenEVSE's did. mg_error() marks
+  // the connection closing and raises MG_EV_ERROR synchronously; if
+  // connected() still said yes, this publish would go out on the failed
+  // connection and, when the send fails, re-enter this handler.
+  client.onError([&](const char *) {
+    errors++;
+    connectedInHandler = client.connected();
+    publishedInHandler = client.publish("arduino-mongoose/closing", "x");
+  });
+
+  TEST_ASSERT_TRUE(client.connect("127.0.0.1:1883", "arduino-mongoose-closing", [&connected]() {
+    connected = true;
+  }));
+  TEST_ASSERT_TRUE_MESSAGE(
+      pumpUntil([&connected]() { return connected; }, 5000),
+      "MQTT client failed to connect");
+  TEST_ASSERT_TRUE(client.connected());
+
+  mg_error(client.getConnection(), "test");
+
+  TEST_ASSERT_EQUAL(1, errors);
+  TEST_ASSERT_FALSE(connectedInHandler);
+  TEST_ASSERT_FALSE(publishedInHandler);
+  TEST_ASSERT_FALSE(client.connected());
+}
+
 void runMqttClientTests() {
   RUN_TEST(test_mqtt_api_setters_compile_and_do_not_crash);
   RUN_TEST(test_mqtt_keepalive_defaults_to_60_and_is_settable);
   RUN_TEST(test_mqtt_connack_code_tracks_broker_rejection);
   RUN_TEST(test_mqtt_round_trip_with_local_broker);
   RUN_TEST(test_mqtt_subscribe_with_qos_and_disconnect_handler);
+  RUN_TEST(test_mqtt_error_handler_sees_closing_connection_as_disconnected);
 }
