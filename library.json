@@ -87,7 +87,7 @@
       ]
     }
   ],
-  "version": "1.2.0",
+  "version": "1.2.1",
   "frameworks": "*",
   "platforms": "espressif32,espressif8266,native,windows_x86",
   "dependencies": [
