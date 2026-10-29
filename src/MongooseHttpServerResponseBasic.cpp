@@ -20,11 +20,13 @@ MongooseHttpServerResponseBasic::MongooseHttpServerResponseBasic() :
 
 void MongooseHttpServerResponseBasic::setContent(const char *content)
 {
+  MongooseCore::Guard guard;
   setContent((uint8_t *)content, strlen(content));
 }
 
 void MongooseHttpServerResponseBasic::setContent(const uint8_t *content, size_t len)
 {
+  MongooseCore::Guard guard;
   this->ptr = content;
   this->len = len;
   setContentLength(this->len);
@@ -32,6 +34,7 @@ void MongooseHttpServerResponseBasic::setContent(const uint8_t *content, size_t 
 
 size_t MongooseHttpServerResponseBasic::sendBody(struct mg_connection *nc, size_t bytes)
 {
+  MongooseCore::Guard guard;
   size_t send = std::min(len, bytes);
 
   mg_send(nc, ptr, send);

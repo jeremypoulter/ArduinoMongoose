@@ -31,6 +31,7 @@ MongooseHttpServer::~MongooseHttpServer()
 
 bool MongooseHttpServer::allowKeepAlive()
 {
+  MongooseCore::Guard guard;
   if(!_keepAliveEnabled) {
     return false;
   }
@@ -48,6 +49,7 @@ bool MongooseHttpServer::allowKeepAlive()
 
 bool MongooseHttpServer::begin(uint16_t port)
 {
+  MongooseCore::Guard guard;
   char addr[32];
   snprintf(addr, sizeof(addr), "http://0.0.0.0:%u", port);
   DBUGF("Starting HTTP server on %s", addr);
@@ -56,17 +58,20 @@ bool MongooseHttpServer::begin(uint16_t port)
 
 bool MongooseHttpServer::begin(uint16_t port, const char *cert, const char *private_key)
 {
+  MongooseCore::Guard guard;
   setCertificate(cert, private_key);
   return begin(port);
 }
 
 MongooseHttpServerEndpointUpload *MongooseHttpServer::on(const char* uri)
 {
+  MongooseCore::Guard guard;
   return on(uri, HTTP_ANY);
 }
 
 MongooseHttpServerEndpointUpload *MongooseHttpServer::on(const char* uri, MongooseHttpRequestHandler onRequest)
 {
+  MongooseCore::Guard guard;
   MongooseHttpServerEndpointUpload *endpoint = on(uri);
   if(endpoint)
   {
@@ -79,6 +84,7 @@ MongooseHttpServerEndpointUpload *MongooseHttpServer::on(const char* uri, Mongoo
 
 MongooseHttpServerEndpointUpload *MongooseHttpServer::on(const char* uri, HttpRequestMethodComposite method, MongooseHttpRequestHandler onRequest)
 {
+  MongooseCore::Guard guard;
   MongooseHttpServerEndpointUpload *endpoint = on(uri, method);
   if(endpoint)
   {
@@ -91,6 +97,7 @@ MongooseHttpServerEndpointUpload *MongooseHttpServer::on(const char* uri, HttpRe
 
 MongooseHttpServerEndpointUpload *MongooseHttpServer::on(const char* uri, HttpRequestMethodComposite method)
 {
+  MongooseCore::Guard guard;
   MongooseHttpServerEndpointUpload *endpoint = new MongooseHttpServerEndpointUpload(method, uri);
   if(endpoint) {
     _endpoints.push_front(endpoint);
@@ -101,6 +108,7 @@ MongooseHttpServerEndpointUpload *MongooseHttpServer::on(const char* uri, HttpRe
 
 MongooseHttpServerEndpointUpload *MongooseHttpServer::on(const char* uri, MongooseHttpUploadHandler onUpload)
 {
+  MongooseCore::Guard guard;
   MongooseHttpServerEndpointUpload *endpoint = new MongooseHttpServerEndpointUpload(HTTP_POST, uri);
   if(endpoint)
   {
@@ -114,6 +122,7 @@ MongooseHttpServerEndpointUpload *MongooseHttpServer::on(const char* uri, Mongoo
 
 MongooseHttpServerEndpointWebSocket *MongooseHttpServer::on(const char* uri, MongooseHttpWebSocketFrameHandler onFrame)
 {
+  MongooseCore::Guard guard;
   MongooseHttpServerEndpointWebSocket *endpoint = new MongooseHttpServerEndpointWebSocket(HTTP_ANY, uri);
   if(endpoint)
   {
@@ -127,6 +136,7 @@ MongooseHttpServerEndpointWebSocket *MongooseHttpServer::on(const char* uri, Mon
 
 MongooseHttpServerEndpoint *MongooseHttpServer::on(MongooseHttpServerEndpoint *endpoint)
 {
+  MongooseCore::Guard guard;
   if(endpoint)
   {
     _endpoints.push_front(endpoint);
@@ -139,6 +149,7 @@ MongooseHttpServerEndpoint *MongooseHttpServer::on(MongooseHttpServerEndpoint *e
 
 void MongooseHttpServer::onNotFound(MongooseHttpRequestHandler fn)
 {
+  MongooseCore::Guard guard;
   _notFound.onRequest(fn);
 }
 
@@ -201,6 +212,7 @@ void MongooseHttpServer::handleHeaders(mg_connection *nc, mg_http_message *msg)
 
 void MongooseHttpServer::sendAll(MongooseHttpWebSocketConnection *from, const char *endpoint, int op, const void *data, size_t len)
 {
+  MongooseCore::Guard guard;
   mg_mgr *mgr = Mongoose.getMgr();
 
   const struct mg_connection *nc = from ? from->getConnection() : nullptr;

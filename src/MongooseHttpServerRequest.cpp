@@ -108,6 +108,7 @@ mg_http_message *MongooseHttpServerRequest::duplicateMessage(mg_http_message *sm
 
 void MongooseHttpServerRequest::redirect(const char *url)
 {
+  MongooseCore::Guard guard;
 
 }
 
@@ -120,6 +121,7 @@ void MongooseHttpServerRequest::redirect(const String& url)
 
 MongooseHttpServerResponseBasic *MongooseHttpServerRequest::beginResponse()
 {
+  MongooseCore::Guard guard;
   return new MongooseHttpServerResponseBasic();
 }
 
@@ -127,6 +129,7 @@ MongooseHttpServerResponseBasic *MongooseHttpServerRequest::beginResponse()
 
 MongooseHttpServerResponseStream *MongooseHttpServerRequest::beginResponseStream()
 {
+  MongooseCore::Guard guard;
   return new MongooseHttpServerResponseStream();
 }
 
@@ -134,6 +137,7 @@ MongooseHttpServerResponseStream *MongooseHttpServerRequest::beginResponseStream
 
 void MongooseHttpServerRequest::send(MongooseHttpServerResponse *response)
 {
+  MongooseCore::Guard guard;
   if(_response) {
     delete _response;
     _response = nullptr;
@@ -148,6 +152,7 @@ void MongooseHttpServerRequest::send(MongooseHttpServerResponse *response)
 
 void MongooseHttpServerRequest::sendBody()
 {
+  MongooseCore::Guard guard;
   if(_response)
   {
     size_t free = getConnection()->send.size - getConnection()->send.len;
@@ -175,6 +180,7 @@ void MongooseHttpServerRequest::sendBody()
 // next request, otherwise we drain it and close as before.
 void MongooseHttpServerRequest::completeRequest()
 {
+  MongooseCore::Guard guard;
   _completed = true;
   _lastActivity = mg_millis();
 
@@ -189,11 +195,13 @@ void MongooseHttpServerRequest::completeRequest()
 
 
 void MongooseHttpServerRequest::send(int code) {
+  MongooseCore::Guard guard;
   send(code, "text/plain", "");
 }
 
 void MongooseHttpServerRequest::send(int code, const char *contentType, const char *content)
 {
+  MongooseCore::Guard guard;
   char headers[128];
   mg_snprintf(headers, sizeof(headers),
       "Connection: %s\r\n"
@@ -218,6 +226,7 @@ void MongooseHttpServerRequest::send(int code, const String& contentType, const 
 // IMPROVE: add a function to Mongoose to do this
 bool MongooseHttpServerRequest::hasParam(const char *name) const
 {
+  MongooseCore::Guard guard;
   char dst[8];
   int ret = getParam(name, dst, sizeof(dst));
   return ret >= 0 || -3 == ret; 
@@ -243,6 +252,7 @@ bool MongooseHttpServerRequest::hasParam(const __FlashStringHelper * data) const
 
 int MongooseHttpServerRequest::getParam(const char *name, char *dst, size_t dst_len) const
 {
+  MongooseCore::Guard guard;
   return mg_http_get_var((HTTP_GET == _method) ? (&_msg->query) : (&_msg->body),
     name, dst, dst_len);
 }
@@ -314,6 +324,7 @@ String MongooseHttpServerRequest::getParam(const __FlashStringHelper * data) con
 
 bool MongooseHttpServerRequest::authenticate(const char * username, const char * password)
 {
+  MongooseCore::Guard guard;
   DBUGVAR(username);
   DBUGVAR(password);
 
@@ -341,6 +352,7 @@ bool MongooseHttpServerRequest::authenticate(const char * username, const char *
 
 void MongooseHttpServerRequest::requestAuthentication(const char* realm)
 {
+  MongooseCore::Guard guard;
   char headers[256];
   mg_snprintf(headers, sizeof(headers),
       "Connection: %s\r\n"
