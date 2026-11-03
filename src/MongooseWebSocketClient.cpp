@@ -53,6 +53,7 @@ MongooseWebSocketClient::~MongooseWebSocketClient()
 
 bool MongooseWebSocketClient::connect(const char *url, const char *protocol, const char *extraHeaders)
 {
+  MongooseCore::Guard guard;
   if (!url) {
     return false;
   }
@@ -92,6 +93,7 @@ bool MongooseWebSocketClient::connect(const char *url, const char *protocol, con
 
 void MongooseWebSocketClient::disconnect()
 {
+  MongooseCore::Guard guard;
   if (getConnection()) {
     bool wasConnected = connected();
     _state = State::CLOSING;
@@ -105,6 +107,7 @@ void MongooseWebSocketClient::disconnect()
 
 void MongooseWebSocketClient::loop()
 {
+  MongooseCore::Guard guard;
   // Handle reconnection if disconnected or in error state
   if ((_state == State::DISCONNECTED || _state == State::ERROR_STATE) && _url && _reconnectInterval > 0) {
     attemptReconnect();
@@ -113,11 +116,13 @@ void MongooseWebSocketClient::loop()
 
 bool MongooseWebSocketClient::sendTXT(const char *msg, size_t length)
 {
+  MongooseCore::Guard guard;
   return send(WEBSOCKET_OP_TEXT, msg, length);
 }
 
 bool MongooseWebSocketClient::send(int op, const void *data, size_t len)
 {
+  MongooseCore::Guard guard;
   if (!connected()) {
     return false;
   }

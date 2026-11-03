@@ -78,6 +78,7 @@ class MongooseHttpServer : public MongooseHttpServerConnection
      * @param enable true to allow connection reuse, false to close after each response
      */
     void enableKeepAlive(bool enable) {
+      MongooseCore::Guard guard;
       _keepAliveEnabled = enable;
     }
 
@@ -98,6 +99,7 @@ class MongooseHttpServer : public MongooseHttpServerConnection
      *                  is reaped. Defaults to ARDUINO_MONGOOSE_KEEPALIVE_TIMEOUT seconds.
      */
     void setKeepAliveTimeout(uint32_t timeoutMs) {
+      MongooseCore::Guard guard;
       _keepAliveTimeoutMs = timeoutMs;
     }
 

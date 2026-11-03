@@ -4,6 +4,7 @@
 #endif
 
 #include <string.h>
+#include <utility>
 
 #include <MicroDebug.h>
 
@@ -20,13 +21,16 @@
 #endif
 #endif // ARDUINO
 
+std::recursive_mutex MongooseCore::_mutex;
+
 MongooseCore::MongooseCore() : 
   _rootCa(ARDUINO_MONGOOSE_DEFAULT_ROOT_CA),
   _rootCaCallback([this]() -> const char * { return _rootCa; }),
   _nameserverCount(0),
   _activeNameserver(0),
   _lastFailover(0),
-  mgr({0})
+  mgr({0}),
+  _wakeup(nullptr)
 {
   memset(_nameserver, 0, sizeof(_nameserver));
   _active[0] = '\0';
@@ -34,7 +38,15 @@ MongooseCore::MongooseCore() :
 
 void MongooseCore::begin() 
 {
+  Guard guard;
   mg_mgr_init(&mgr);
+  if(mg_wakeup_init(&mgr)) {
+    _wakeup = mgr.conns;
+    if(_wakeup) {
+      _wakeup->pfn = wakeupHandler;
+      _wakeup->pfn_data = this;
+    }
+  }
 
   ipConfigChanged();
 
@@ -49,11 +61,15 @@ void MongooseCore::begin()
 
 void MongooseCore::end() 
 {
+  Guard guard;
   mg_mgr_free(&mgr);
+  _wakeup = nullptr;
+  _posted.clear();
 }
 
 void MongooseCore::poll(int timeout_ms) 
 {
+  Guard guard;
   mg_mgr_poll(&mgr, timeout_ms);
 }
 
@@ -62,8 +78,42 @@ struct mg_mgr *MongooseCore::getMgr()
   return &mgr;
 }
 
+bool MongooseCore::post(std::function<void()> callback)
+{
+  if(!callback) {
+    return false;
+  }
+
+  Guard guard;
+  if(!_wakeup) {
+    return false;
+  }
+  _posted.push_back(std::move(callback));
+  static const char wakeupMarker = 0;
+  if(!mg_wakeup(&mgr, _wakeup->id, &wakeupMarker, 0)) {
+    _posted.pop_back();
+    return false;
+  }
+  return true;
+}
+
+void MongooseCore::wakeupHandler(struct mg_connection *nc, int ev, void *)
+{
+  if(ev != MG_EV_WAKEUP) {
+    return;
+  }
+
+  MongooseCore *core = static_cast<MongooseCore *>(nc->pfn_data);
+  while(!core->_posted.empty()) {
+    std::function<void()> callback = std::move(core->_posted.front());
+    core->_posted.pop_front();
+    callback();
+  }
+}
+
 void MongooseCore::ipConfigChanged() 
 {
+  Guard guard;
 #ifdef ARDUINO
 #if defined(ESP32) || defined(ESP8266)
   IPAddress dns[MONGOOSE_NAMESERVERS];
@@ -107,6 +157,7 @@ void MongooseCore::ipConfigChanged()
 
 void MongooseCore::setNameservers(const char *const *servers, size_t count)
 {
+  Guard guard;
   _nameserverCount = 0;
   for(size_t i = 0; i < count && _nameserverCount < MONGOOSE_NAMESERVERS; i++) {
     if(nullptr != servers && servers[i] && servers[i][0]) {
@@ -120,6 +171,7 @@ void MongooseCore::setNameservers(const char *const *servers, size_t count)
 
 void MongooseCore::setNameserver(const char *server)
 {
+  Guard guard;
   setNameservers(&server, 1);
 }
 
@@ -183,11 +235,13 @@ void MongooseCore::closeResolver()
 
 const char *MongooseCore::nameserver() const
 {
+  Guard guard;
   return mgr.dns4.url;
 }
 
 bool MongooseCore::dnsError(const char *error)
 {
+  Guard guard;
   if(_nameserverCount < 2 || nullptr == error || 0 != strcmp(error, "DNS timeout")) {
     return false;
   }

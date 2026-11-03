@@ -2,6 +2,7 @@
 #define MongooseMdns_h
 
 #include "MongoosePlatform.h"
+#include "MongooseCore.h"
 
 #include <mongoose.h>
 
@@ -298,6 +299,7 @@ class MongooseMdns
      * @param handler  Callback receiving a MongooseMdnsRequest pointer
      */
     void onRequest(MongooseMdnsRequestHandler handler) {
+      MongooseCore::Guard guard;
       _onRequest = handler;
     }
 
@@ -305,6 +307,7 @@ class MongooseMdns
      * @brief Check if the mDNS listener is active.
      */
     bool isActive() const {
+      MongooseCore::Guard guard;
       return _mdns != nullptr;
     }
 
@@ -313,6 +316,7 @@ class MongooseMdns
      * Returns nullptr if begin() has not been called.
      */
     const char *hostname() const {
+      MongooseCore::Guard guard;
       return _hostname;
     }
 
@@ -320,6 +324,7 @@ class MongooseMdns
      * @brief Get the number of currently registered services.
      */
     int numServices() const {
+      MongooseCore::Guard guard;
       return _numServices;
     }
 
