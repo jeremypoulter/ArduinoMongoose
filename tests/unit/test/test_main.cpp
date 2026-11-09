@@ -14,6 +14,7 @@ void runSntpClientTests();
 void runMdnsTests();
 void runSocketAddressTests();
 void runDnsFailoverTests();
+void runThreadingTests();
 
 static int runAllTests() {
   UNITY_BEGIN();
@@ -28,6 +29,7 @@ static int runAllTests() {
   runSntpClientTests();
   runSocketAddressTests();
   runDnsFailoverTests();
+  runThreadingTests();
 #endif
   runMdnsTests();
   return UNITY_END();

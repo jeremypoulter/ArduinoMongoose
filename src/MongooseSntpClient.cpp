@@ -52,6 +52,7 @@ void MongooseSntpClient::handleEvent(mg_connection *nc, int ev, void *p)
 
 bool MongooseSntpClient::getTime(const char *server, MongooseSntpTimeHandler onTime)
 {
+  MongooseCore::Guard guard;
   if(!connected()) 
   {
     DBUGF("Trying to connect to %s", server);

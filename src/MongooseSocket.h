@@ -94,6 +94,7 @@ class MongooseSocket
      * @brief Gracefully disconnect the socket (drain pending data)
      */
     void disconnect() {
+      MongooseCore::Guard guard;
       if(_nc) {
         _nc->is_draining = 1;
       }
@@ -102,6 +103,7 @@ class MongooseSocket
      * @brief Forcibly abort the socket connection immediately
      */
     void abort() {
+      MongooseCore::Guard guard;
       if(_nc) {
         _nc->is_closing = 1;
       }
@@ -117,6 +119,7 @@ class MongooseSocket
      * @return true if connected
      */
     virtual bool connected() {
+      MongooseCore::Guard guard;
       return _nc;
     }
 
@@ -135,6 +138,8 @@ class MongooseSocket
      * @return mg_connection*
      */
     mg_connection *getConnection() {
+      // Raw connection access bypasses synchronization; callers that use the
+      // pointer must hold MongooseCore::Guard for the duration of access.
       return _nc;
     }
 
