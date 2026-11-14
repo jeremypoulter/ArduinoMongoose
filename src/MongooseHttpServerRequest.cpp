@@ -9,6 +9,7 @@
 #include <MicroDebug.h>
 #include <algorithm>
 #include <cstring>
+#include <new>
 
 #include "MongooseHttpServerRequest.h"
 #include "MongooseHttpServerEndpoint.h"
@@ -30,6 +31,11 @@ MongooseHttpServerRequest::MongooseHttpServerRequest(MongooseHttpServer *server,
   _completed(false),
   _lastActivity(0)
 {
+  // Out of memory copying the request: stay detached so the endpoint can
+  // delete this and refuse the request (MongooseHttpServerEndpoint).
+  if(!hasMessage()) {
+    return;
+  }
   connect(nc);
   nc->fn_data = this;
   _keepAlive = negotiateKeepAlive(msg);
@@ -62,9 +68,11 @@ MongooseHttpServerRequest::~MongooseHttpServerRequest()
   }
 
 #if MG_COPY_HTTP_MESSAGE
-  free(_msg->message.buf);
-  delete _msg;
-  _msg = nullptr;
+  if(_msg) {
+    free(_msg->message.buf);
+    delete _msg;
+    _msg = nullptr;
+  }
 #endif
 }
 
@@ -82,12 +90,20 @@ mg_str mg_mk_str_from_offsets(mg_str &dest, mg_str &src, mg_str &value)
 
 mg_http_message *MongooseHttpServerRequest::duplicateMessage(mg_http_message *sm)
 {
-  mg_http_message *nm = new mg_http_message();
+  // nothrow: a failed allocation here must refuse one request, not abort().
+  mg_http_message *nm = new (std::nothrow) mg_http_message();
+  if(!nm) {
+    return nullptr;
+  }
   memset(nm, 0, sizeof(*nm));
 
   mg_str headers = mg_str_n(sm->message.buf, sm->message.len - sm->body.len);
 
   nm->message = mg_strdup(headers);
+  if(headers.len > 0 && nullptr == nm->message.buf) {
+    delete nm;
+    return nullptr;
+  }
   nm->body = sm->body;
 
   nm->method = mg_mk_str_from_offsets(nm->message, sm->message, sm->method);

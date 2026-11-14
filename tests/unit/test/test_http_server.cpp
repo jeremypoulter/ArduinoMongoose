@@ -3,6 +3,8 @@
 #include <MongooseHttpClient.h>
 #include <MongooseHttpServer.h>
 
+#include <cstdlib>
+#include <new>
 #include <string>
 #include <vector>
 
@@ -852,6 +854,63 @@ static void test_https_server_tls_handshake_succeeds() {
   TEST_ASSERT_EQUAL_STRING("TLS OK", capture.body.c_str());
 }
 
+// Out of memory while accepting a request. The library allocates the request
+// and its copy of the headers with nothrow new; this replaces that operator so
+// a test can make the next allocation of one size fail, as it does on a
+// charger whose heap has fragmented (crash-service #29).
+static size_t failNextNothrowSize = 0;
+
+void *operator new(std::size_t size, const std::nothrow_t &) noexcept {
+  if (size == failNextNothrowSize) {
+    failNextNothrowSize = 0;
+    return nullptr;
+  }
+  return std::malloc(size ? size : 1);
+}
+
+static HttpResponseCapture getOnce(const char *url) {
+  HttpResponseCapture capture;
+  MongooseHttpClient client;
+  TEST_ASSERT_TRUE(client.get(url, [&capture](MongooseHttpClientResponse *response) {
+    capture.responded = true;
+    capture.code = response->respCode();
+  }, [&capture]() { capture.closed = true; }));
+  TEST_ASSERT_TRUE_MESSAGE(pumpUntil([&capture]() { return capture.closed; }), "request timed out");
+  return capture;
+}
+
+static void checkOutOfMemoryRefusesOneRequest(uint16_t port, size_t size) {
+  ScopedMongoose mongoose;
+  MongooseHttpServer server;
+  TEST_ASSERT_TRUE(server.begin(port));
+  server.on("/", HTTP_GET, [](MongooseHttpServerRequest *request) {
+    request->send(200, "text/plain", "ok");
+  });
+
+  char url[48];
+  snprintf(url, sizeof(url), "http://127.0.0.1:%u/", (unsigned)port);
+
+  failNextNothrowSize = size;
+  HttpResponseCapture refused = getOnce(url);
+  size_t unconsumed = failNextNothrowSize;
+  failNextNothrowSize = 0;   // never leak a pending failure into the next test
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(0, unconsumed, "no allocation of that size was made");
+  TEST_ASSERT_TRUE(refused.responded);
+  TEST_ASSERT_EQUAL(503, refused.code);
+
+  // The server is still up and the next request is served.
+  TEST_ASSERT_EQUAL(200, getOnce(url).code);
+}
+
+static void test_http_server_header_copy_oom_is_a_503() {
+  checkOutOfMemoryRefusesOneRequest(18096, sizeof(mg_http_message));
+}
+
+static void test_http_server_request_alloc_oom_is_a_503() {
+  // server.on() endpoints are upload endpoints, which make upload requests.
+  checkOutOfMemoryRefusesOneRequest(18097, sizeof(MongooseHttpServerRequestUpload));
+}
+
 void runHttpServerTests() {
   RUN_TEST(test_http_server_routes_and_not_found);
   RUN_TEST(test_http_server_authentication_and_challenge);
@@ -871,4 +930,6 @@ void runHttpServerTests() {
   RUN_TEST(test_http_server_keepalive_idle_timeout);
   RUN_TEST(test_http_server_keepalive_pool_pressure_veto);
   RUN_TEST(test_https_server_tls_handshake_succeeds);
+  RUN_TEST(test_http_server_header_copy_oom_is_a_503);
+  RUN_TEST(test_http_server_request_alloc_oom_is_a_503);
 }

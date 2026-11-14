@@ -22,6 +22,11 @@ RequestHandle MongooseHttpServerEndpoint::willHandleRequest(MongooseHttpServer *
     if(_method & requestMethod)
     {
       MongooseHttpServerRequest *request = requestFactory(server, nc, requestMethod, msg);
+      if(request && !request->hasMessage()) {
+        // Out of memory: never attached to nc, so deleting it is all there is.
+        delete request;
+        request = nullptr;
+      }
       if(request)
       {
         nc->fn_data = request;
