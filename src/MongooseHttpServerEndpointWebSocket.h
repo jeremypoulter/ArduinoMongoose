@@ -19,7 +19,7 @@ class MongooseHttpServerEndpointWebSocket : public MongooseHttpServerEndpoint
 
   protected:
     virtual MongooseHttpServerRequest *requestFactory(MongooseHttpServer *server, mg_connection *nc, HttpRequestMethodComposite method, mg_http_message *msg) {
-      return new MongooseHttpWebSocketConnection(server, nc, method, msg, this);
+      return new (std::nothrow) MongooseHttpWebSocketConnection(server, nc, method, msg, this);
     }
 
     void handleConnect(MongooseHttpWebSocketConnection *connection) {

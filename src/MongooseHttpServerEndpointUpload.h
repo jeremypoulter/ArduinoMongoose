@@ -23,7 +23,7 @@ class MongooseHttpServerEndpointUpload : public MongooseHttpServerEndpoint
 
   protected:
     virtual MongooseHttpServerRequest *requestFactory(MongooseHttpServer *server, mg_connection *nc, HttpRequestMethodComposite method, mg_http_message *msg) {
-      return new MongooseHttpServerRequestUpload(server, nc, method, msg, this);
+      return new (std::nothrow) MongooseHttpServerRequestUpload(server, nc, method, msg, this);
     }
 
   public:
