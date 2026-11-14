@@ -12,6 +12,10 @@
 MongooseHttpWebSocketConnection::MongooseHttpWebSocketConnection(MongooseHttpServer *server, mg_connection *nc, HttpRequestMethodComposite method, mg_http_message *msg, MongooseHttpServerEndpoint *endpoint) :
   MongooseHttpServerRequest(server, nc, method, msg, endpoint)
 {
+  if(!hasMessage()) {
+    return;
+  }
+
   // WebSocket connections manage their own full-duplex lifetime; the HTTP
   // keep-alive machinery (completion latch, idle reaper, request re-dispatch)
   // must leave them alone.

@@ -51,6 +51,10 @@ MongooseHttpServerRequestUpload::MongooseHttpServerRequestUpload(
   _bodyExpected(0),
   _bodyReceived(0)
 {
+  if(!hasMessage()) {
+    return;
+  }
+
   MongooseHttpServerEndpointUpload *uploadEndpoint =
       static_cast<MongooseHttpServerEndpointUpload *>(_endpoint);
 

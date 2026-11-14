@@ -181,7 +181,8 @@ void MongooseHttpServer::handleHeaders(mg_connection *nc, mg_http_message *msg)
         break;
       
       case REQUEST_ERROR:
-        mg_http_reply(nc, 500, nullptr, "Internal Server Error");
+        // The only way a request is not created is running out of memory.
+        mg_http_reply(nc, 503, nullptr, "Service Unavailable");
         nc->is_draining = 1;
         return;
 

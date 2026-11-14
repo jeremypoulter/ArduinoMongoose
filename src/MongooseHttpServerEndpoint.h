@@ -6,6 +6,7 @@
 #include <mongoose.h>
 
 #include <functional>
+#include <new>
 
 #include "MongooseString.h"
 #include "MongooseHttp.h"
@@ -44,7 +45,7 @@ class MongooseHttpServerEndpoint
     void handleClose(MongooseHttpServerRequest *request);
   protected:
     virtual MongooseHttpServerRequest *requestFactory(MongooseHttpServer *server, mg_connection *nc, HttpRequestMethodComposite method, mg_http_message *msg) {
-      return new MongooseHttpServerRequest(server, nc, method, msg, this);
+      return new (std::nothrow) MongooseHttpServerRequest(server, nc, method, msg, this);
     }
 
   public:

@@ -97,6 +97,12 @@ class MongooseHttpServerRequest : public MongooseHttpServerConnection, public Mo
 #endif
 
   public:
+    // False when the request could not be copied for lack of memory. Such a
+    // request is never attached to its connection.
+    bool hasMessage() const {
+      return nullptr != _msg;
+    }
+
     MongooseHttpServerRequest(MongooseHttpServer *server, mg_connection *nc, HttpRequestMethodComposite method, mg_http_message *msg, MongooseHttpServerEndpoint *endpoint);
     virtual ~MongooseHttpServerRequest();
 
