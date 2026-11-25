@@ -3,6 +3,7 @@ set -euo pipefail
 
 RELEASE_URL="https://api.github.com/repos/cesanta/mongoose/releases/latest"
 TAGS_URL="https://api.github.com/repos/cesanta/mongoose/tags"
+FORK_URL="https://github.com/jeremypoulter/mongoose.git"
 curl_common=(
   -fsSL
   -H "Accept: application/vnd.github+json"
@@ -22,18 +23,29 @@ if [ -z "$latest_tag" ]; then
   exit 1
 fi
 
+# The patch stack lives on the fork; its head is part of the vendored version.
+stack_head=$(git ls-remote "$FORK_URL" refs/heads/stack/mdns | cut -f1)
+if [ -z "$stack_head" ]; then
+  echo "Failed to read stack/mdns head from $FORK_URL"
+  exit 1
+fi
+
 current_tag="unknown"
+current_stack="none"
 if [ -f .mongoose-version ]; then
-  current_tag=$(cat .mongoose-version)
+  current_tag=$(sed -n '1p' .mongoose-version)
+  current_stack=$(sed -n 's/^stack=//p' .mongoose-version)
+  current_stack=${current_stack:-none}
 fi
 
 echo "latest_tag=$latest_tag" >> "$GITHUB_OUTPUT"
 echo "current_tag=$current_tag" >> "$GITHUB_OUTPUT"
+echo "stack_head=$stack_head" >> "$GITHUB_OUTPUT"
 
-if [ "$latest_tag" = "$current_tag" ]; then
+if [ "$latest_tag" = "$current_tag" ] && [ "$stack_head" = "$current_stack" ]; then
   echo "changed=false" >> "$GITHUB_OUTPUT"
-  echo "Mongoose already up to date: $current_tag"
+  echo "Mongoose already up to date: $current_tag (stack $current_stack)"
 else
   echo "changed=true" >> "$GITHUB_OUTPUT"
-  echo "Mongoose update available: $current_tag -> $latest_tag"
+  echo "Mongoose update available: $current_tag/$current_stack -> $latest_tag/$stack_head"
 fi
