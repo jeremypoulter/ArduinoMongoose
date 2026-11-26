@@ -33,6 +33,7 @@ MongooseHttpWebSocketConnection::~MongooseHttpWebSocketConnection()
 
 void MongooseHttpWebSocketConnection::send(int op, const void *data, size_t len)
 {
+  MongooseCore::Guard guard;
   mg_ws_send(getConnection(), data, len, op);
 }
 

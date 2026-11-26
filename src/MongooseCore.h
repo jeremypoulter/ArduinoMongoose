@@ -6,6 +6,8 @@
 #include "mongoose.h"
 
 #include <functional>
+#include <deque>
+#include <mutex>
 
 #ifndef ARDUINO_MONGOOSE_DEFAULT_ROOT_CA
 #define ARDUINO_MONGOOSE_DEFAULT_ROOT_CA ""
@@ -47,11 +49,29 @@ class MongooseCore
     int _activeNameserver;
     uint64_t _lastFailover;
     struct mg_mgr mgr;
+    struct mg_connection *_wakeup;
+    std::deque<std::function<void()>> _posted;
+    static std::recursive_mutex _mutex;
 
     void useNameserver(int index);
     void closeResolver();
+    static void wakeupHandler(struct mg_connection *nc, int ev, void *ev_data);
 
   public:
+    /**
+     * @brief Lock Mongoose manager access
+     *
+     * Public wrapper APIs acquire this recursively. Use it when accessing the
+     * raw manager returned by getMgr().
+     */
+    class Guard {
+      public:
+        Guard() { _mutex.lock(); }
+        ~Guard() { _mutex.unlock(); }
+        Guard(const Guard &) = delete;
+        Guard &operator=(const Guard &) = delete;
+    };
+
     /**
      * @brief Construct a new Mongoose Core object
      */
@@ -69,6 +89,9 @@ class MongooseCore
 
     /**
      * @brief Poll the networking subsystem for events
+     *
+     * Mongoose manager access is serialized across wrapper APIs. Callbacks
+     * invoked during polling may safely call those APIs recursively.
      * 
      * @param timeout_ms Maximum time to block waiting for events, in milliseconds
      */
@@ -76,10 +99,24 @@ class MongooseCore
 
     /**
      * @brief Get the underlying Mongoose mg_mgr struct
+     *
+     * Raw access bypasses the library's synchronization. Hold a
+     * MongooseCore::Guard for the entire period in which the manager is used.
      * 
      * @return struct mg_mgr* Pointer to the Mongoose manager
      */
     struct mg_mgr *getMgr();
+
+    /**
+     * @brief Schedule work to run on the task calling poll()
+     *
+     * Safe to call from another task. The function runs during a later poll;
+     * returns false if wakeup support is unavailable or its queue is full.
+     *
+     * @param callback Work to execute on the poll task
+     * @return true if the work was queued
+     */
+    bool post(std::function<void()> callback);
 
     /**
      * @brief Re-evaluates IP configuration when network interfaces change

@@ -139,6 +139,7 @@ void MongooseMdns::handleReq(struct mg_connection *nc, struct mg_mdns_req *req)
 
 bool MongooseMdns::begin(const char *hostname)
 {
+  MongooseCore::Guard guard;
   if (!hostname || hostname[0] == '\0' || strlen(hostname) > 63 || strchr(hostname, '.')) {
     return false;
   }
@@ -168,6 +169,7 @@ bool MongooseMdns::begin(const char *hostname)
 
 void MongooseMdns::end()
 {
+  MongooseCore::Guard guard;
   if (_mdns) {
     // Detach synchronously: the connection is freed on the next poll, after
     // this object and its hostname may already have been destroyed.
@@ -188,6 +190,7 @@ void MongooseMdns::end()
 
 bool MongooseMdns::addService(const char *srvcproto, uint16_t port, const char *txt)
 {
+  MongooseCore::Guard guard;
   if (!srvcproto || strlen(srvcproto) >= sizeof(_services[0].srvcproto) ||
       _numServices >= MAX_SERVICES || (txt && strlen(txt) > 255)) {
     return false;
@@ -228,6 +231,7 @@ bool MongooseMdns::addService(const char *protocol, const char *transport, uint1
 
 bool MongooseMdns::removeService(const char *srvcproto)
 {
+  MongooseCore::Guard guard;
   if (!srvcproto) {
     return false;
   }
@@ -260,6 +264,7 @@ bool MongooseMdns::removeService(const char *protocol, const char *transport)
 
 bool MongooseMdns::query(const char *name, unsigned int rtype)
 {
+  MongooseCore::Guard guard;
   if (!_mdns || !name) {
     return false;
   }
@@ -272,6 +277,7 @@ bool MongooseMdns::query(const char *name, unsigned int rtype)
 
 bool MongooseMdns::addServiceTxt(const char *service, const char *key, const char *value)
 {
+  MongooseCore::Guard guard;
   if (!service || !key || !*key || strchr(key, '=') || !value) return false;
   std::string entry = std::string(key) + "=" + value;
   if (entry.size() > 255) return false;
@@ -305,6 +311,7 @@ static std::string mdnsString(mg_str value)
 
 bool MongooseMdns::browse(const char *srvcproto)
 {
+  MongooseCore::Guard guard;
   cancelBrowse();
   if (!srvcproto || !*srvcproto) return false;
   _browseService = srvcproto;
@@ -322,6 +329,7 @@ bool MongooseMdns::browse(const char *srvcproto)
 
 void MongooseMdns::cancelBrowse()
 {
+  MongooseCore::Guard guard;
   _browseService.clear();
   _browseRetriesLeft = 0;
   std::vector<BrowseRecord>().swap(_records);
@@ -397,6 +405,7 @@ void MongooseMdns::handleResponse(const mg_mdns_resp &resp)
 
 std::vector<MongooseMdns::DiscoveredService> MongooseMdns::services() const
 {
+  MongooseCore::Guard guard;
   std::vector<DiscoveredService> result;
   uint64_t now = mg_millis();
   for (const auto &r : _records) {
