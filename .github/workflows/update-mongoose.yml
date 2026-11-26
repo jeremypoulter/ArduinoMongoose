@@ -24,11 +24,29 @@ jobs:
         run: ./.github/scripts/detect-mongoose-tag.sh
 
       - name: Update vendored files
+        id: update
         if: steps.detect.outputs.changed == 'true'
         shell: bash
         env:
           LATEST_TAG: ${{ steps.detect.outputs.latest_tag }}
+          CONFLICT_FILE: ${{ runner.temp }}/conflict.txt
         run: ./.github/scripts/update-vendored-mongoose.sh
+
+      - name: Open issue when the patch stack does not apply
+        if: failure() && steps.update.outcome == 'failure'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.detect.outputs.latest_tag }}
+          CONFLICT_FILE: ${{ runner.temp }}/conflict.txt
+        run: |
+          title="Mongoose $TAG: fork patch stack does not apply"
+          if [ -z "$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number')" ]; then
+            body=$(cat "$CONFLICT_FILE" 2>/dev/null || echo "Update failed, see the workflow run.")
+            gh issue create --title "$title" --body "$body
+
+          Workflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          fi
 
       - name: Exit neutrally when no update is needed
         if: steps.detect.outputs.changed != 'true'
@@ -45,13 +63,21 @@ jobs:
         id: cpr
         uses: peter-evans/create-pull-request@v8
         with:
+          # A PAT or App token is needed for the PR's own checks to run; pushes made
+          # with the default GITHUB_TOKEN do not trigger workflows.
+          token: ${{ secrets.MONGOOSE_UPDATE_TOKEN || secrets.GITHUB_TOKEN }}
           base: master
           branch: ci/update-mongoose-${{ steps.detect.outputs.latest_tag }}
           delete-branch: true
           commit-message: "chore: update mongoose to ${{ steps.detect.outputs.latest_tag }}"
           title: "chore: update mongoose to ${{ steps.detect.outputs.latest_tag }}"
           body: |
-            This PR updates vendored Mongoose sources to `${{ steps.detect.outputs.latest_tag }}`.
+            This PR updates vendored Mongoose sources to `${{ steps.detect.outputs.latest_tag }}`,
+            with the fork patch stack applied.
+
+            - Upstream tag: `cesanta/mongoose@${{ steps.detect.outputs.latest_tag }}`
+            - Patch stack: `jeremypoulter/mongoose@stack/mdns` (`${{ steps.update.outputs.stack_head }}`), rebased onto the tag
+            - `src/mongoose.c` and `src/mongoose.h` are regenerated with `make -B mongoose.c mongoose.h`; do not edit them by hand.
 
             Note: the updater workflow intentionally does **not** run build/tests by design.
             Normal repository PR checks are expected to validate these changes.
