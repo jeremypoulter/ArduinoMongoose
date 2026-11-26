@@ -76,7 +76,7 @@ jobs:
             with the fork patch stack applied.
 
             - Upstream tag: `cesanta/mongoose@${{ steps.detect.outputs.latest_tag }}`
-            - Patch stack: `jeremypoulter/mongoose@stack/mdns` (`${{ steps.detect.outputs.stack_head }}`), rebased onto the tag
+            - Patch stack: `jeremypoulter/mongoose@stack/mdns` (`${{ steps.update.outputs.stack_head }}`), rebased onto the tag
             - `src/mongoose.c` and `src/mongoose.h` are regenerated with `make -B mongoose.c mongoose.h`; do not edit them by hand.
 
             Note: the updater workflow intentionally does **not** run build/tests by design.
