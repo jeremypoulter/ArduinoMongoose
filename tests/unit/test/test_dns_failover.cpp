@@ -415,6 +415,27 @@ static void test_dns_failover_reconfigure_does_not_fail_the_next_lookup() {
                             "closing was failed by that close");
 }
 
+static void test_dns_failover_drops_servers_that_are_not_an_ipv4_address() {
+  ScopedMongoose mongoose;
+  // An IPv6 resolver from DHCPv6/RDNSS formats as "udp://fe80::1:53", whose
+  // host parses as "fe80". That is not an address, so mg_resolve() would look
+  // the resolver itself up through the resolver: mg_connect -> mg_resolve ->
+  // mg_dnsc_init -> mg_connect ... until the loop task's stack ran out.
+  // A hostname has the same problem. Only numeric servers may be used.
+  static const char *servers[] = {"udp://fe80::1:53", "udp://dns.example:53",
+                                  "udp://10.0.0.1:53", "udp://[2001:db8::1]:53"};
+  Mongoose.setNameservers(servers, 4);
+  TEST_ASSERT_EQUAL_STRING("udp://10.0.0.1:53", Mongoose.nameserver());
+  // The rejected entries are not failover candidates either.
+  TEST_ASSERT_FALSE(Mongoose.dnsError("DNS timeout"));
+  TEST_ASSERT_EQUAL_STRING("udp://10.0.0.1:53", Mongoose.nameserver());
+
+  // Nothing usable: keep the resolver that was already in place.
+  static const char *only_v6[] = {"udp://fe80::1:53"};
+  Mongoose.setNameservers(only_v6, 1);
+  TEST_ASSERT_EQUAL_STRING("udp://10.0.0.1:53", Mongoose.nameserver());
+}
+
 void runDnsFailoverTests() {
   RUN_TEST(test_dns_failover_first_server_is_active);
   RUN_TEST(test_dns_failover_single_server_never_rotates);
@@ -424,6 +445,7 @@ void runDnsFailoverTests() {
   RUN_TEST(test_dns_failover_set_nameservers_resets_to_primary);
   RUN_TEST(test_dns_failover_rotates_through_three_servers);
   RUN_TEST(test_dns_failover_skips_null_and_empty_entries);
+  RUN_TEST(test_dns_failover_drops_servers_that_are_not_an_ipv4_address);
   RUN_TEST(test_dns_failover_keeps_at_most_the_configured_maximum);
   RUN_TEST(test_dns_failover_end_to_end_via_secondary);
   RUN_TEST(test_dns_failover_reconfigure_replaces_resolver_socket);
