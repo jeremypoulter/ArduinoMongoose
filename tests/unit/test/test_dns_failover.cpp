@@ -434,6 +434,15 @@ static void test_dns_failover_drops_servers_that_are_not_an_ipv4_address() {
   static const char *only_v6[] = {"udp://fe80::1:53"};
   Mongoose.setNameservers(only_v6, 1);
   TEST_ASSERT_EQUAL_STRING("udp://10.0.0.1:53", Mongoose.nameserver());
+
+  // "udp://::1:53" parses to an EMPTY host, which mg_aton() accepts as the
+  // zero address; the same goes for a URL with no host at all.
+  static const char *empty_host[] = {"udp://::1:53"};
+  Mongoose.setNameservers(empty_host, 1);
+  TEST_ASSERT_EQUAL_STRING("udp://10.0.0.1:53", Mongoose.nameserver());
+  static const char *no_host[] = {"udp://:53"};
+  Mongoose.setNameservers(no_host, 1);
+  TEST_ASSERT_EQUAL_STRING("udp://10.0.0.1:53", Mongoose.nameserver());
 }
 
 void runDnsFailoverTests() {

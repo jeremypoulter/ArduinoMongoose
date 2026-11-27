@@ -114,9 +114,12 @@ void MongooseCore::setNameservers(const char *const *servers, size_t count)
     // hostname -- would be resolved through the resolver itself, and
     // mg_resolve() -> mg_dnsc_init() -> mg_connect() recurses until the stack
     // overflows. This build's Mongoose has no IPv6 sockets to use one with.
+    // mg_aton() also accepts an empty host (the zero address, e.g. from
+    // "udp://::1:53") and "localhost", so require a leading digit first.
     struct mg_addr addr;
-    if(nullptr != servers && servers[i] && servers[i][0] &&
-       mg_aton(mg_url_host(servers[i]), &addr) && !addr.is_ip6) {
+    struct mg_str host = (nullptr != servers && servers[i]) ? mg_url_host(servers[i]) : mg_str_n(nullptr, 0);
+    if(host.len > 0 && host.buf[0] >= '0' && host.buf[0] <= '9' &&
+       mg_aton(host, &addr) && !addr.is_ip6) {
       snprintf(_nameserver[_nameserverCount], MONGOOSE_NAMESERVER_LEN, "%s", servers[i]);
       _nameserverCount++;
     }
